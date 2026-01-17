@@ -5,7 +5,7 @@ A Neovim plugin for managing your personal wiki.
 ## Dependencies
 
 One of the following picker plugins is required:
-- [fzf-lua](https://github.com/ibhagwan/fzf-lua) (fast, feature-rich)
+- [fzf-lua](https://github.com/ibhagwan/fzf-lua) (fast, feature-rich) - **default**
 - [mini.pick](https://github.com/echasnovski/mini.nvim) (lightweight, modern)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (most popular)
 
@@ -18,6 +18,12 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "wom/womwiki",
+  dependencies = {
+    "ibhagwan/fzf-lua", -- Default picker (recommended)
+    -- Alternatives (uncomment to use instead):
+    -- "echasnovski/mini.nvim",
+    -- "nvim-telescope/telescope.nvim",
+  },
   config = function()
     require("womwiki").setup({
       path = "~/src/wiki", -- Path to your wiki

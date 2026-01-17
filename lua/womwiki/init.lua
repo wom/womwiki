@@ -93,8 +93,8 @@ end
 function M.hello()
     print('yooo')
     local files = M.list_files()
-    vim.notify(M.dailydir, vim.log.levels.INFO, { title = "dailydir " })
-    vim.notify(table.concat(files, "\n"), vim.log.levels.INFO, { title = "File List" })
+
+
 end
 
 -- Open picker to find files in the wiki directory
