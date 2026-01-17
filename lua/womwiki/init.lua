@@ -1,7 +1,8 @@
 local M = {}
 
 M.config = {
-    path = os.getenv("HOME") .. '/src/wiki'
+    path = os.getenv("HOME") .. '/src/wiki',
+    picker = nil, -- Optional: 'telescope', 'mini', 'fzf'
 }
 
 local function update_paths()
@@ -18,14 +19,43 @@ end
 -- Initialize with defaults
 update_paths()
 
--- Helper: Check if fzf-lua is available
-local function require_fzf()
-    local ok, fzf = pcall(require, 'fzf-lua')
-    if not ok then
-        vim.notify("fzf-lua not installed", vim.log.levels.ERROR)
-        return nil
+-- Helper: Detect available picker and return picker type + module
+local function get_picker()
+    -- Use configured picker if available
+    if M.config.picker == 'telescope' then
+        if pcall(require, 'telescope') then
+            return 'telescope', require('telescope.builtin')
+        end
+        vim.notify("Configured picker 'telescope' is not installed", vim.log.levels.ERROR)
+        return nil, nil
+    elseif M.config.picker == 'mini' then
+        if pcall(require, 'mini.pick') then
+            return 'mini', require('mini.pick')
+        end
+        vim.notify("Configured picker 'mini' is not installed", vim.log.levels.ERROR)
+        return nil, nil
+    elseif M.config.picker == 'fzf' then
+        if pcall(require, 'fzf-lua') then
+            return 'fzf', require('fzf-lua')
+        end
+        vim.notify("Configured picker 'fzf' is not installed", vim.log.levels.ERROR)
+        return nil, nil
     end
-    return fzf
+
+    -- Auto-detect if no preference configured
+    -- Check for fzf-lua (fast, feature-rich)
+    if pcall(require, 'fzf-lua') then
+        return 'fzf', require('fzf-lua')
+    -- Check for mini.pick (lightweight, modern)
+    elseif pcall(require, 'mini.pick') then
+        return 'mini', require('mini.pick')
+    -- Check for telescope (most popular)
+    elseif pcall(require, 'telescope') then
+        return 'telescope', require('telescope.builtin')
+    else
+        vim.notify("No picker installed. Please install one of: fzf-lua, mini.pick, or telescope.nvim", vim.log.levels.ERROR)
+        return nil, nil
+    end
 end
 
 -- Helper: Ensure filename has .md extension
@@ -67,24 +97,38 @@ function M.hello()
     vim.notify(table.concat(files, "\n"), vim.log.levels.INFO, { title = "File List" })
 end
 
--- Open fzf to find files in the wiki directory
+-- Open picker to find files in the wiki directory
 function M.wiki()
-    local fzf = require_fzf()
-    if not fzf then return end
-    fzf.files({
-        cwd = M.wikidir,
-        fzf_opts = { ['--sort'] = true },
-    })
+    local picker_type, picker = get_picker()
+    if not picker then return end
+    
+    if picker_type == 'telescope' then
+        picker.find_files({ cwd = M.wikidir })
+    elseif picker_type == 'mini' then
+        picker.builtin.files({ source = { cwd = M.wikidir } })
+    elseif picker_type == 'fzf' then
+        picker.files({
+            cwd = M.wikidir,
+            fzf_opts = { ['--sort'] = true },
+        })
+    end
 end
 
--- Open fzf to find files in the daily directory
+-- Open picker to find files in the daily directory
 function M.dailies()
-    local fzf = require_fzf()
-    if not fzf then return end
-    fzf.files({
-        cwd = M.dailydir,
-        fzf_opts = { ['--sort'] = true },
-    })
+    local picker_type, picker = get_picker()
+    if not picker then return end
+    
+    if picker_type == 'telescope' then
+        picker.find_files({ cwd = M.dailydir })
+    elseif picker_type == 'mini' then
+        picker.builtin.files({ source = { cwd = M.dailydir } })
+    elseif picker_type == 'fzf' then
+        picker.files({
+            cwd = M.dailydir,
+            fzf_opts = { ['--sort'] = true },
+        })
+    end
 end
 
 -- Get list of subdirectories in wiki directory
@@ -156,10 +200,10 @@ function M.create_file()
     end)
 end
 
--- Open recent wiki files using fzf-lua oldfiles filtered to wiki directory
+-- Open recent wiki files using available picker
 function M.recent()
-    local fzf = require_fzf()
-    if not fzf then return end
+    local picker_type, picker = get_picker()
+    if not picker then return end
     
     -- Get all oldfiles and filter them manually
     local oldfiles = vim.v.oldfiles or {}
@@ -177,26 +221,57 @@ function M.recent()
         return
     end
     
-    fzf.fzf_exec(wiki_files, {
-        prompt = "Recent Wiki Files> ",
-        actions = {
-            ['default'] = function(selected)
-                if selected and selected[1] then
-                    open_wiki_file(selected[1])
-                end
+    if picker_type == 'telescope' then
+        require('telescope.pickers').new({}, {
+            prompt_title = "Recent Wiki Files",
+            finder = require('telescope.finders').new_table({
+                results = wiki_files
+            }),
+            sorter = require('telescope.config').values.generic_sorter({}),
+            attach_mappings = function(_, map)
+                map('i', '<CR>', function(prompt_bufnr)
+                    local selection = require('telescope.actions.state').get_selected_entry()
+                    require('telescope.actions').close(prompt_bufnr)
+                    if selection then
+                        open_wiki_file(selection.value)
+                    end
+                end)
+                return true
             end,
-        },
-        fzf_opts = { ['--sort'] = true },
-    })
+        }):find()
+    elseif picker_type == 'mini' then
+        picker.start({
+            source = { items = wiki_files, name = 'Recent Wiki Files' },
+            choose = function(item) open_wiki_file(item) end,
+        })
+    elseif picker_type == 'fzf' then
+        picker.fzf_exec(wiki_files, {
+            prompt = "Recent Wiki Files> ",
+            actions = {
+                ['default'] = function(selected)
+                    if selected and selected[1] then
+                        open_wiki_file(selected[1])
+                    end
+                end,
+            },
+            fzf_opts = { ['--sort'] = true },
+        })
+    end
 end
 
--- grep through wiki files using fzf
+-- Search through wiki files using available picker
 function M.search()
-    local fzf = require_fzf()
-    if not fzf then return end
-    fzf.live_grep({
-        cwd = M.wikidir,
-    })
+    local picker_type, picker = get_picker()
+    if not picker then return end
+    
+    if picker_type == 'telescope' then
+        picker.live_grep({ cwd = M.wikidir })
+    elseif picker_type == 'mini' then
+        -- Note: mini.pick doesn't have live_grep built-in, using grep builtin instead
+        picker.builtin.grep_live({ source = { cwd = M.wikidir } })
+    elseif picker_type == 'fzf' then
+        picker.live_grep({ cwd = M.wikidir })
+    end
 end
 
 local function create_file_with_template(filename, template, subs)
@@ -739,8 +814,8 @@ function M.backlinks()
         return
     end
     
-    local fzf = require_fzf()
-    if not fzf then return end
+    local picker_type, picker = get_picker()
+    if not picker then return end
     
     -- Search for files that link to current file
     local search_patterns = {
@@ -748,26 +823,41 @@ function M.backlinks()
         '\\]\\(' .. current_file .. '\\.md\\)', -- [text](filename.md)
     }
     
-    fzf.grep({
-        search = table.concat(search_patterns, '|'),
-        cwd = M.wikidir,
-        fzf_opts = { 
-            ['--header'] = '󰌷 Backlinks to: ' .. current_file .. '.md',
-            ['--preview'] = 'bat --style=numbers --color=always --highlight-line {2} {1} 2>/dev/null || cat {1}',
-            ['--preview-window'] = 'right:60%'
-        },
-        actions = {
-            ['default'] = function(selected)
-                if selected and selected[1] then
-                    -- Extract filename from "filename:line:content" format
-                    local file = selected[1]:match('^([^:]+)')
-                    if file then
-                        open_wiki_file(M.wikidir .. '/' .. file)
+    if picker_type == 'telescope' then
+        picker.grep_string({
+            search = table.concat(search_patterns, '|'),
+            cwd = M.wikidir,
+            use_regex = true,
+            prompt_title = '󰌷 Backlinks to: ' .. current_file .. '.md',
+        })
+    elseif picker_type == 'mini' then
+        -- For mini.pick, we'll use a simpler approach
+        picker.builtin.grep_live({
+            source = { cwd = M.wikidir },
+            default_text = current_file,
+        })
+    elseif picker_type == 'fzf' then
+        picker.grep({
+            search = table.concat(search_patterns, '|'),
+            cwd = M.wikidir,
+            fzf_opts = { 
+                ['--header'] = '󰌷 Backlinks to: ' .. current_file .. '.md',
+                ['--preview'] = 'bat --style=numbers --color=always --highlight-line {2} {1} 2>/dev/null || cat {1}',
+                ['--preview-window'] = 'right:60%'
+            },
+            actions = {
+                ['default'] = function(selected)
+                    if selected and selected[1] then
+                        -- Extract filename from "filename:line:content" format
+                        local file = selected[1]:match('^([^:]+)')
+                        if file then
+                            open_wiki_file(M.wikidir .. '/' .. file)
+                        end
                     end
-                end
-            end
-        }
-    })
+                end,
+            }
+        })
+    end
 end
 
 -- Build link graph data structure
@@ -951,47 +1041,103 @@ function M.show_graph()
     
     vim.keymap.set('n', 'h', function()
         vim.api.nvim_win_close(win, true)
-        -- Show hubs in fzf
-        local fzf = require_fzf()
-        if fzf and #hubs > 0 then
+        -- Show hubs in picker
+        local picker_type, picker = get_picker()
+        if picker and #hubs > 0 then
             local hub_items = {}
             for _, hub in ipairs(hubs) do
                 table.insert(hub_items, hub.name .. ".md")
             end
-            fzf.fzf_exec(hub_items, {
-                prompt = "Hub Files> ",
-                actions = {
-                    ['default'] = function(selected)
-                        if selected and selected[1] then
-                            local filename = selected[1]
-                            open_wiki_file(M.wikidir .. '/' .. filename)
+            
+            if picker_type == 'telescope' then
+                require('telescope.pickers').new({}, {
+                    prompt_title = "Hub Files",
+                    finder = require('telescope.finders').new_table({
+                        results = hub_items
+                    }),
+                    sorter = require('telescope.config').values.generic_sorter({}),
+                    attach_mappings = function(_, map)
+                        map('i', '<CR>', function(prompt_bufnr)
+                            local selection = require('telescope.actions.state').get_selected_entry()
+                            require('telescope.actions').close(prompt_bufnr)
+                            if selection then
+                                open_wiki_file(M.wikidir .. '/' .. selection.value)
+                            end
+                        end)
+                        return true
+                    end,
+                }):find()
+            elseif picker_type == 'mini' then
+                picker.start({
+                    source = { items = hub_items, name = 'Hub Files' },
+                    choose = function(item) 
+                        open_wiki_file(M.wikidir .. '/' .. item)
+                    end,
+                })
+            elseif picker_type == 'fzf' then
+                picker.fzf_exec(hub_items, {
+                    prompt = "Hub Files> ",
+                    actions = {
+                        ['default'] = function(selected)
+                            if selected and selected[1] then
+                                local filename = selected[1]
+                                open_wiki_file(M.wikidir .. '/' .. filename)
+                            end
                         end
-                    end
-                }
-            })
+                    }
+                })
+            end
         end
     end, keymap_opts)
     
     vim.keymap.set('n', 'o', function()
         vim.api.nvim_win_close(win, true)
-        -- Show orphans in fzf
-        local fzf = require_fzf()
-        if fzf and #orphans > 0 then
+        -- Show orphans in picker
+        local picker_type, picker = get_picker()
+        if picker and #orphans > 0 then
             local orphan_items = {}
             for _, orphan in ipairs(orphans) do
                 table.insert(orphan_items, orphan .. ".md")
             end
-            fzf.fzf_exec(orphan_items, {
-                prompt = "Orphan Files> ",
-                actions = {
-                    ['default'] = function(selected)
-                        if selected and selected[1] then
-                            local filename = selected[1]
-                            open_wiki_file(M.wikidir .. '/' .. filename)
+            
+            if picker_type == 'telescope' then
+                require('telescope.pickers').new({}, {
+                    prompt_title = "Orphan Files",
+                    finder = require('telescope.finders').new_table({
+                        results = orphan_items
+                    }),
+                    sorter = require('telescope.config').values.generic_sorter({}),
+                    attach_mappings = function(_, map)
+                        map('i', '<CR>', function(prompt_bufnr)
+                            local selection = require('telescope.actions.state').get_selected_entry()
+                            require('telescope.actions').close(prompt_bufnr)
+                            if selection then
+                                open_wiki_file(M.wikidir .. '/' .. selection.value)
+                            end
+                        end)
+                        return true
+                    end,
+                }):find()
+            elseif picker_type == 'mini' then
+                picker.start({
+                    source = { items = orphan_items, name = 'Orphan Files' },
+                    choose = function(item) 
+                        open_wiki_file(M.wikidir .. '/' .. item)
+                    end,
+                })
+            elseif picker_type == 'fzf' then
+                picker.fzf_exec(orphan_items, {
+                    prompt = "Orphan Files> ",
+                    actions = {
+                        ['default'] = function(selected)
+                            if selected and selected[1] then
+                                local filename = selected[1]
+                                open_wiki_file(M.wikidir .. '/' .. filename)
+                            end
                         end
-                    end
-                }
-            })
+                    }
+                })
+            end
         end
     end, keymap_opts)
 end
