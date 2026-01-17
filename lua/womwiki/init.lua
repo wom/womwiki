@@ -1,0 +1,1005 @@
+local M = {}
+
+M.config = {
+    path = os.getenv("HOME") .. '/src/wiki'
+}
+
+local function update_paths()
+    local symlink_path = M.config.path
+    M.wikidir = vim.uv.fs_realpath(symlink_path) or symlink_path
+    M.dailydir = M.wikidir .. '/daily'
+end
+
+function M.setup(opts)
+    M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+    update_paths()
+end
+
+-- Initialize with defaults
+update_paths()
+
+-- Helper: Check if fzf-lua is available
+local function require_fzf()
+    local ok, fzf = pcall(require, 'fzf-lua')
+    if not ok then
+        vim.notify("fzf-lua not installed", vim.log.levels.ERROR)
+        return nil
+    end
+    return fzf
+end
+
+-- Helper: Ensure filename has .md extension
+local function ensure_md_extension(filename)
+    if not filename:match("%.md$") then
+        return filename .. ".md"
+    end
+    return filename
+end
+
+-- Helper: Open a file in wiki context
+local function open_wiki_file(path)
+    vim.cmd("edit " .. vim.fn.fnameescape(path))
+    vim.b.womwiki = true
+    vim.cmd("lcd " .. vim.fn.fnameescape(M.wikidir))
+end
+
+-- List all files in the daily directory
+function M.list_files()
+    local files = {}
+    local handle = vim.uv.fs_scandir(M.dailydir)
+    if handle then
+        while true do
+            local name, type = vim.uv.fs_scandir_next(handle)
+            if not name then break end
+            if type == "file" then
+                table.insert(files, name)
+            end
+        end
+    end
+    return files
+end
+
+-- Print a greeting and list all files in the daily directory
+function M.hello()
+    print('yooo')
+    local files = M.list_files()
+    vim.notify(M.dailydir, vim.log.levels.INFO, { title = "dailydir " })
+    vim.notify(table.concat(files, "\n"), vim.log.levels.INFO, { title = "File List" })
+end
+
+-- Open fzf to find files in the wiki directory
+function M.wiki()
+    local fzf = require_fzf()
+    if not fzf then return end
+    fzf.files({
+        cwd = M.wikidir,
+        fzf_opts = { ['--sort'] = true },
+    })
+end
+
+-- Open fzf to find files in the daily directory
+function M.dailies()
+    local fzf = require_fzf()
+    if not fzf then return end
+    fzf.files({
+        cwd = M.dailydir,
+        fzf_opts = { ['--sort'] = true },
+    })
+end
+
+-- Get list of subdirectories in wiki directory
+function M.get_wiki_folders()
+    local folders = { M.wikidir }  -- Always include root wiki directory
+    local handle = vim.uv.fs_scandir(M.wikidir)
+    if handle then
+        while true do
+            local name, type = vim.uv.fs_scandir_next(handle)
+            if not name then break end
+            if type == "directory" then
+                table.insert(folders, M.wikidir .. '/' .. name)
+            end
+        end
+    end
+    return folders
+end
+
+-- Create a new wiki file
+function M.create_file()
+    local folders = M.get_wiki_folders()
+    local folder_names = {}
+    for _, folder in ipairs(folders) do
+        if folder == M.wikidir then
+            table.insert(folder_names, "/ (root)")
+        else
+            table.insert(folder_names, folder:match(".*/(.*)"))
+        end
+    end
+    
+    vim.ui.select(folder_names, {
+        prompt = 'Select folder:',
+    }, function(choice_name, choice_index)
+        if choice_name then
+            local selected_folder = folders[choice_index]
+            vim.ui.input({ 
+                prompt = 'Enter filename (without .md extension): ',
+                default = ''
+            }, function(filename)
+                if filename and filename ~= "" then
+                    filename = ensure_md_extension(filename)
+                    local full_path = selected_folder .. '/' .. filename
+                    
+                    -- Check if file already exists
+                    local file = io.open(full_path, "r")
+                    if file then
+                        file:close()
+                        vim.ui.input({
+                            prompt = 'File exists! Overwrite? (y/N): ',
+                        }, function(confirm)
+                            if confirm and confirm:lower() == 'y' then
+                                open_wiki_file(full_path)
+                            end
+                        end)
+                    else
+                        -- Create new file
+                        local new_file = io.open(full_path, "w")
+                        if new_file then
+                            new_file:write("# " .. filename:gsub("%.md$", "") .. "\n\n")
+                            new_file:close()
+                            open_wiki_file(full_path)
+                        else
+                            vim.notify("Failed to create file: " .. full_path, vim.log.levels.ERROR)
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+-- Open recent wiki files using fzf-lua oldfiles filtered to wiki directory
+function M.recent()
+    local fzf = require_fzf()
+    if not fzf then return end
+    
+    -- Get all oldfiles and filter them manually
+    local oldfiles = vim.v.oldfiles or {}
+    local wiki_files = {}
+    
+    for _, file in ipairs(oldfiles) do
+        -- Check if file starts with wiki directory path (plain string match)
+        if vim.startswith(file, M.wikidir) then
+            table.insert(wiki_files, file)
+        end
+    end
+    
+    if #wiki_files == 0 then
+        vim.notify("No recent wiki files found", vim.log.levels.INFO)
+        return
+    end
+    
+    fzf.fzf_exec(wiki_files, {
+        prompt = "Recent Wiki Files> ",
+        actions = {
+            ['default'] = function(selected)
+                if selected and selected[1] then
+                    open_wiki_file(selected[1])
+                end
+            end,
+        },
+        fzf_opts = { ['--sort'] = true },
+    })
+end
+
+-- grep through wiki files using fzf
+function M.search()
+    local fzf = require_fzf()
+    if not fzf then return end
+    fzf.live_grep({
+        cwd = M.wikidir,
+    })
+end
+
+local function create_file_with_template(filename, template, subs)
+    local template_file = io.open(template, "r")
+    if not template_file then
+        vim.notify("Template file not found: " .. template, vim.log.levels.ERROR)
+        return
+    end
+
+    local template_content = template_file:read("*a")
+    template_file:close()
+
+    for _, sub_pair in ipairs(subs) do
+        local key, value = sub_pair[1], sub_pair[2]
+        template_content = template_content:gsub('{{ ' .. key .. ' }}', value)
+    end
+
+    local file = io.open(filename, "w")
+    file:write(template_content)
+    file:close()
+end
+
+-- Open or create a daily file with a specified offset in days
+function M.open_daily(days_offset)
+    days_offset = days_offset or 0
+    local date = os.date("%Y-%m-%d", os.time() + days_offset * 86400)
+    local filename = M.dailydir .. '/' .. date .. ".md"
+    
+    -- Check if the file exists
+    local file = io.open(filename, "r")
+    if file then
+        file:close()
+    else
+        -- File doesn't exist, create it with the template content
+        local template = os.getenv("HOME") .. '/.config/nvim/templates/daily.templ'
+        local subs = {
+            {"date", date}
+        }
+        create_file_with_template(filename, template, subs)
+    end
+
+    -- Open the file in the editor with 20% height or minimum 10 lines
+    vim.cmd("aboveleft " .. math.max(10, math.floor(vim.o.lines * 0.2)) .. "split " .. filename)
+    vim.b.womwiki = true  -- Tag the buffer as a womwiki buffer
+    vim.cmd("lcd " .. vim.fn.fnameescape(M.wikidir))  -- Set wikidir just for that buffer
+end
+
+function M.close_daily()
+    if vim.b.womwiki then
+        vim.cmd('bd')  -- Close the buffer
+    else
+        print("Not a womwiki buffer")
+    end
+end
+
+-- Calendar view for navigating daily notes
+function M.calendar()
+    local current_year = tonumber(os.date("%Y"))
+    local current_month = tonumber(os.date("%m"))
+    local current_day = tonumber(os.date("%d"))
+    
+    local function days_in_month(year, month)
+        return os.date("*t", os.time({year=year, month=month+1, day=0})).day
+    end
+    
+    local function first_day_of_month(year, month)
+        return os.date("*t", os.time({year=year, month=month, day=1})).wday
+    end
+    
+    local function get_existing_dailies()
+        local dailies = {}
+        local files = M.list_files()
+        for _, file in ipairs(files) do
+            local year, month, day = file:match("(%d+)-(%d+)-(%d+)%.md")
+            if year and month and day then
+                local key = string.format("%04d-%02d-%02d", tonumber(year), tonumber(month), tonumber(day))
+                dailies[key] = true
+            end
+        end
+        return dailies
+    end
+    
+    local function show_calendar(year, month, selected_day)
+        -- Cache existing dailies once instead of on every render
+        local existing_dailies = get_existing_dailies()
+        
+        local function render_calendar(year, month, selected_day)
+            local lines = {}
+            
+            table.insert(lines, string.format("     %s %d", os.date("%B", os.time({year=year, month=month, day=1})), year))
+            table.insert(lines, "")
+            table.insert(lines, " Su Mo Tu We Th Fr Sa")
+            
+            local days = days_in_month(year, month)
+            local first_day = first_day_of_month(year, month)
+            
+            local line = ""
+            for i = 1, first_day - 1 do
+                line = line .. "   "
+            end
+            
+            for day = 1, days do
+                local date_key = string.format("%04d-%02d-%02d", year, month, day)
+                local has_note = existing_dailies[date_key]
+                
+                local day_str
+                if day == selected_day then
+                    day_str = string.format("[%2d]", day)
+                elseif day == current_day and month == current_month and year == current_year then
+                    day_str = string.format("<%2d>", day)
+                elseif has_note then
+                    day_str = string.format("*%2d ", day)
+                else
+                    day_str = string.format(" %2d ", day)
+                end
+                
+                line = line .. day_str
+                
+                if (first_day - 1 + day) % 7 == 0 then
+                    table.insert(lines, line)
+                    line = ""
+                end
+            end
+            
+            if line ~= "" then
+                table.insert(lines, line)
+            end
+            
+            table.insert(lines, "")
+            table.insert(lines, "Navigate: hjkl/arrows | Enter: open | q: quit")
+            table.insert(lines, "n: next month | p: prev month | t: today")
+            table.insert(lines, "Legend: <today> [selected] *has-note")
+            
+            return lines
+        end
+        
+        local lines = render_calendar(year, month, selected_day)
+        
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modifiable = false
+        vim.bo[buf].buftype = 'nofile'
+        
+        local width = 30
+        local height = #lines
+        local win = vim.api.nvim_open_win(buf, true, {
+            relative = "editor",
+            width = width,
+            height = height,
+            col = math.ceil((vim.o.columns - width) / 2),
+            row = math.ceil((vim.o.lines - height) / 2),
+            style = "minimal",
+            border = "rounded",
+        })
+        
+        local function update_display()
+            local new_lines = render_calendar(year, month, selected_day)
+            vim.bo[buf].modifiable = true
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
+            vim.bo[buf].modifiable = false
+        end
+        
+        local function open_selected()
+            local offset = os.difftime(
+                os.time({year=year, month=month, day=selected_day}),
+                os.time({year=current_year, month=current_month, day=current_day})
+            ) / 86400
+            vim.api.nvim_win_close(win, true)
+            M.open_daily(math.floor(offset))
+        end
+        
+        local keymap_opts = { buffer = buf, nowait = true, silent = true }
+        
+        vim.keymap.set('n', 'q', function() vim.api.nvim_win_close(win, true) end, keymap_opts)
+        vim.keymap.set('n', '<Esc>', function() vim.api.nvim_win_close(win, true) end, keymap_opts)
+        vim.keymap.set('n', '<CR>', open_selected, keymap_opts)
+        
+        vim.keymap.set('n', 'h', function()
+            selected_day = math.max(1, selected_day - 1)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', '<Left>', function()
+            selected_day = math.max(1, selected_day - 1)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', 'l', function()
+            selected_day = math.min(days_in_month(year, month), selected_day + 1)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', '<Right>', function()
+            selected_day = math.min(days_in_month(year, month), selected_day + 1)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', 'k', function()
+            selected_day = math.max(1, selected_day - 7)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', '<Up>', function()
+            selected_day = math.max(1, selected_day - 7)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', 'j', function()
+            selected_day = math.min(days_in_month(year, month), selected_day + 7)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', '<Down>', function()
+            selected_day = math.min(days_in_month(year, month), selected_day + 7)
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', 'n', function()
+            month = month + 1
+            if month > 12 then
+                month = 1
+                year = year + 1
+            end
+            selected_day = math.min(selected_day, days_in_month(year, month))
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', 'p', function()
+            month = month - 1
+            if month < 1 then
+                month = 12
+                year = year - 1
+            end
+            selected_day = math.min(selected_day, days_in_month(year, month))
+            update_display()
+        end, keymap_opts)
+        
+        vim.keymap.set('n', 't', function()
+            year = current_year
+            month = current_month
+            selected_day = current_day
+            update_display()
+        end, keymap_opts)
+    end
+    
+    show_calendar(current_year, current_month, current_day)
+end
+
+-- Cleanup unmodified daily notes
+function M.cleanup()
+    local template_path = os.getenv("HOME") .. '/.config/nvim/templates/daily.templ'
+    local template_file = io.open(template_path, "r")
+    if not template_file then
+        vim.notify("Template file not found: " .. template_path, vim.log.levels.ERROR)
+        return
+    end
+    
+    local template_content = template_file:read("*a")
+    template_file:close()
+    
+    local files = M.list_files()
+    local unmodified_files = {}
+    
+    for _, filename in ipairs(files) do
+        local filepath = M.dailydir .. '/' .. filename
+        local year, month, day = filename:match("(%d+)-(%d+)-(%d+)%.md")
+        
+        if year and month and day then
+            local date = string.format("%04d-%02d-%02d", tonumber(year), tonumber(month), tonumber(day))
+            
+            -- Generate expected content from template
+            local expected_content = template_content:gsub('{{ date }}', date)
+            
+            -- Read actual file content
+            local file = io.open(filepath, "r")
+            if file then
+                local actual_content = file:read("*a")
+                file:close()
+                
+                -- Compare content
+                if actual_content == expected_content then
+                    table.insert(unmodified_files, {
+                        name = filename,
+                        path = filepath,
+                        date = date
+                    })
+                end
+            end
+        end
+    end
+    
+    if #unmodified_files == 0 then
+        vim.notify("No unmodified daily notes found!", vim.log.levels.INFO)
+        return
+    end
+    
+    -- Show preview of files to be deleted
+    local preview_lines = { "Found " .. #unmodified_files .. " unmodified daily note(s):", "" }
+    for _, file in ipairs(unmodified_files) do
+        table.insert(preview_lines, "  " .. file.name)
+    end
+    table.insert(preview_lines, "")
+    table.insert(preview_lines, "Press 'd' to delete all, 'q' to cancel")
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, preview_lines)
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].buftype = 'nofile'
+    
+    local width = 50
+    local height = math.min(#preview_lines, 20)
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative = "editor",
+        width = width,
+        height = height,
+        col = math.ceil((vim.o.columns - width) / 2),
+        row = math.ceil((vim.o.lines - height) / 2),
+        style = "minimal",
+        border = "rounded",
+    })
+    
+    local keymap_opts = { buffer = buf, nowait = true, silent = true }
+    
+    vim.keymap.set('n', 'q', function()
+        vim.api.nvim_win_close(win, true)
+        vim.notify("Cleanup cancelled", vim.log.levels.INFO)
+    end, keymap_opts)
+    
+    vim.keymap.set('n', '<Esc>', function()
+        vim.api.nvim_win_close(win, true)
+        vim.notify("Cleanup cancelled", vim.log.levels.INFO)
+    end, keymap_opts)
+    
+    vim.keymap.set('n', 'd', function()
+        local deleted_count = 0
+        for _, file in ipairs(unmodified_files) do
+            local success = os.remove(file.path)
+            if success then
+                deleted_count = deleted_count + 1
+            else
+                vim.notify("Failed to delete: " .. file.name, vim.log.levels.WARN)
+            end
+        end
+        
+        vim.api.nvim_win_close(win, true)
+        vim.notify("Deleted " .. deleted_count .. " unmodified daily note(s)", vim.log.levels.INFO)
+    end, keymap_opts)
+end
+
+-- Submenu for Dailies operations
+function M.dailies_menu()
+    M.show_menu({
+        { "Calendar", M.calendar },
+        { "Browse All", M.dailies },
+        { "Today", function() M.open_daily() end },
+        { "Yesterday", function() M.open_daily(-1) end },
+        { "Close Daily", M.close_daily },
+        { "Cleanup Empty", M.cleanup },
+    }, "Dailies Menu", M.picker)
+end
+
+-- Submenu for Browse operations
+function M.browse_menu()
+    M.show_menu({
+        { "All Wikis", M.wiki },
+        { "Recent", M.recent },
+    }, "Browse Menu", M.picker)
+end
+
+-- Main menu choices
+local main_choices = {
+    { "Today", function() M.open_daily() end },
+    { "Close Daily", M.close_daily },
+    { "Recent", M.recent },
+    { "Search", M.search },
+    { "Create", M.create_file },
+    { "Backlinks", M.backlinks },
+    { "Graph View", M.show_graph },
+    { "Dailies >", M.dailies_menu },
+    { "Browse >", M.browse_menu },
+}
+
+-- Generic menu display function
+function M.show_menu(choices, title, back_func)
+    title = title or "womwiki"
+    local options = { title }
+    for i, choice in ipairs(choices) do
+        table.insert(options, string.format("%d: %s", i, choice[1]))
+    end
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, options)
+
+    local max_width = 0
+    for _, line in ipairs(options) do
+        if #line > max_width then
+            max_width = #line
+        end
+    end
+
+    local height = #options
+    local win_width = math.min(max_width + 4, vim.api.nvim_get_option("columns"))
+    local win_height = math.min(height, vim.api.nvim_get_option("lines"))
+    local row = math.ceil((vim.api.nvim_get_option("lines") - win_height) / 2)
+    local col = math.ceil((vim.api.nvim_get_option("columns") - win_width) / 2)
+
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative = "editor",
+        width = win_width,
+        height = win_height,
+        col = col,
+        row = row,
+        style = "minimal",
+        border = "rounded",
+    })
+
+    local function execute_choice(index)
+        if index and choices[index] and choices[index][2] then
+            vim.api.nvim_win_close(win, true)
+            choices[index][2]()
+        end
+    end
+
+    local function handle_enter()
+        local line = vim.api.nvim_get_current_line()
+        local index = tonumber(line:match("^(%d):"))
+        execute_choice(index)
+    end
+
+    local function handle_back()
+        vim.api.nvim_win_close(win, true)
+        if back_func then
+            back_func()
+        end
+    end
+
+    vim.api.nvim_buf_set_keymap(buf, 'n', '<CR>', '', {
+        noremap = true,
+        silent = true,
+        callback = handle_enter
+    })
+    
+    -- q and Esc behave differently based on whether we have a back function
+    if back_func then
+        -- In submenu: Esc and 0 go back, q closes completely
+        vim.api.nvim_buf_set_keymap(buf, 'n', 'q', '', {
+            noremap = true,
+            silent = true,
+            callback = function() vim.api.nvim_win_close(win, true) end
+        })
+        vim.api.nvim_buf_set_keymap(buf, 'n', '<Esc>', '', {
+            noremap = true,
+            silent = true,
+            callback = handle_back
+        })
+        vim.api.nvim_buf_set_keymap(buf, 'n', '0', '', {
+            noremap = true,
+            silent = true,
+            callback = handle_back
+        })
+    else
+        -- In main menu: q and Esc close
+        vim.api.nvim_buf_set_keymap(buf, 'n', 'q', '', {
+            noremap = true,
+            silent = true,
+            callback = function() vim.api.nvim_win_close(win, true) end
+        })
+        vim.api.nvim_buf_set_keymap(buf, 'n', '<Esc>', '', {
+            noremap = true,
+            silent = true,
+            callback = function() vim.api.nvim_win_close(win, true) end
+        })
+    end
+
+    for i = 1, math.min(#choices, 9) do
+        vim.api.nvim_buf_set_keymap(buf, 'n', tostring(i), '', {
+            noremap = true,
+            silent = true,
+            callback = function() execute_choice(i) end
+        })
+    end
+end
+
+-- Get all markdown links from a file
+local function get_links_from_file(file_path)
+    local links = {}
+    local file = io.open(file_path, 'r')
+    if not file then return links end
+    
+    for line in file:lines() do
+        -- Match [text](link) pattern
+        for text, link in line:gmatch('%[([^%]]+)%]%(([^%)]+)%)') do
+            -- Skip URLs, only process local links
+            if not link:match('^https?://') then
+                -- Remove .md extension if present for consistency
+                local clean_link = link:gsub('%.md$', '')
+                table.insert(links, clean_link)
+            end
+        end
+    end
+    file:close()
+    return links
+end
+
+-- Get all wiki files (excluding daily directory)
+local function get_all_wiki_files()
+    local files = {}
+    local function scan_directory(dir, relative_path)
+        local handle = vim.uv.fs_scandir(dir)
+        if not handle then return end
+        
+        while true do
+            local name, type = vim.uv.fs_scandir_next(handle)
+            if not name then break end
+            
+            local full_path = dir .. '/' .. name
+            local file_relative = relative_path and (relative_path .. '/' .. name) or name
+            
+            if type == 'file' and name:match('%.md$') then
+                table.insert(files, {
+                    name = name:gsub('%.md$', ''), -- remove extension
+                    path = full_path,
+                    relative = file_relative
+                })
+            elseif type == 'directory' and name ~= 'daily' and name ~= '.git' then
+                scan_directory(full_path, file_relative)
+            end
+        end
+    end
+    
+    scan_directory(M.wikidir)
+    return files
+end
+
+-- Show backlinks to current file
+function M.backlinks()
+    local current_file = vim.fn.expand('%:t:r')
+    if current_file == '' then
+        vim.notify('Not in a wiki file', vim.log.levels.WARN)
+        return
+    end
+    
+    local fzf = require_fzf()
+    if not fzf then return end
+    
+    -- Search for files that link to current file
+    local search_patterns = {
+        '\\]\\(' .. current_file .. '\\)',      -- [text](filename)
+        '\\]\\(' .. current_file .. '\\.md\\)', -- [text](filename.md)
+    }
+    
+    fzf.grep({
+        search = table.concat(search_patterns, '|'),
+        cwd = M.wikidir,
+        fzf_opts = { 
+            ['--header'] = '󰌷 Backlinks to: ' .. current_file .. '.md',
+            ['--preview'] = 'bat --style=numbers --color=always --highlight-line {2} {1} 2>/dev/null || cat {1}',
+            ['--preview-window'] = 'right:60%'
+        },
+        actions = {
+            ['default'] = function(selected)
+                if selected and selected[1] then
+                    -- Extract filename from "filename:line:content" format
+                    local file = selected[1]:match('^([^:]+)')
+                    if file then
+                        open_wiki_file(M.wikidir .. '/' .. file)
+                    end
+                end
+            end
+        }
+    })
+end
+
+-- Build link graph data structure
+local function build_link_graph()
+    local files = get_all_wiki_files()
+    local graph = {}
+    local all_targets = {}
+    
+    -- Initialize graph and collect all possible targets
+    for _, file in ipairs(files) do
+        graph[file.name] = {
+            path = file.path,
+            links_to = {},
+            linked_from = {}
+        }
+        all_targets[file.name] = true
+    end
+    
+    -- Build adjacency lists
+    for _, file in ipairs(files) do
+        local links = get_links_from_file(file.path)
+        for _, target in ipairs(links) do
+            -- Only include links to files that exist
+            if all_targets[target] then
+                table.insert(graph[file.name].links_to, target)
+                if graph[target] then
+                    table.insert(graph[target].linked_from, file.name)
+                end
+            end
+        end
+    end
+    
+    return graph
+end
+
+-- Create ASCII art graph visualization
+function M.show_graph()
+    local graph = build_link_graph()
+    local current_file = vim.fn.expand('%:t:r')
+    
+    -- Build graph display
+    local lines = {}
+    local max_width = 60
+    
+    -- Header
+    table.insert(lines, "╭─ Wiki Link Graph " .. string.rep("─", max_width - 18) .. "╮")
+    if current_file ~= '' then
+        table.insert(lines, "│ Current: " .. current_file .. string.rep(" ", max_width - 10 - #current_file) .. "│")
+    end
+    table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+    
+    -- Calculate stats
+    local total_files = 0
+    local total_links = 0
+    local orphans = {}
+    local hubs = {}
+    
+    for name, data in pairs(graph) do
+        total_files = total_files + 1
+        total_links = total_links + #data.links_to
+        
+        -- Find orphans (no incoming links)
+        if #data.linked_from == 0 then
+            table.insert(orphans, name)
+        end
+        
+        -- Find hubs (many incoming links)
+        if #data.linked_from >= 3 then
+            table.insert(hubs, {name = name, count = #data.linked_from})
+        end
+    end
+    
+    -- Sort hubs by link count
+    table.sort(hubs, function(a, b) return a.count > b.count end)
+    
+    -- Stats section
+    table.insert(lines, "│ Files: " .. total_files .. " | Links: " .. total_links .. " | Orphans: " .. #orphans .. string.rep(" ", max_width - 30 - #tostring(total_files) - #tostring(total_links) - #tostring(#orphans)) .. "│")
+    table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+    
+    -- Current file details (if in a wiki file)
+    if current_file ~= '' and graph[current_file] then
+        local data = graph[current_file]
+        table.insert(lines, "│ Current file connections:" .. string.rep(" ", max_width - 25) .. "│")
+        
+        if #data.links_to > 0 then
+            table.insert(lines, "│   → Links to: " .. table.concat(data.links_to, ", ") .. string.rep(" ", math.max(0, max_width - 14 - #table.concat(data.links_to, ", "))) .. "│")
+        else
+            table.insert(lines, "│   → Links to: (none)" .. string.rep(" ", max_width - 19) .. "│")
+        end
+        
+        if #data.linked_from > 0 then
+            table.insert(lines, "│   ← Linked from: " .. table.concat(data.linked_from, ", ") .. string.rep(" ", math.max(0, max_width - 17 - #table.concat(data.linked_from, ", "))) .. "│")
+        else
+            table.insert(lines, "│   ← Linked from: (none)" .. string.rep(" ", max_width - 22) .. "│")
+        end
+        
+        table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+    end
+    
+    -- Top hubs
+    if #hubs > 0 then
+        table.insert(lines, "│ Popular files (most backlinks):" .. string.rep(" ", max_width - 32) .. "│")
+        for i = 1, math.min(5, #hubs) do
+            local hub = hubs[i]
+            local line = "│   " .. hub.name .. " (" .. hub.count .. ")"
+            table.insert(lines, line .. string.rep(" ", max_width - #line + 1) .. "│")
+        end
+        table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+    end
+    
+    -- Orphan files
+    if #orphans > 0 then
+        table.insert(lines, "│ Orphan files (no backlinks):" .. string.rep(" ", max_width - 29) .. "│")
+        local orphan_text = table.concat(orphans, ", ")
+        local words = vim.split(orphan_text, ", ")
+        local current_line = "│   "
+        
+        for _, word in ipairs(words) do
+            if #current_line + #word + 2 > max_width - 1 then
+                table.insert(lines, current_line .. string.rep(" ", max_width - #current_line + 1) .. "│")
+                current_line = "│   " .. word
+            else
+                if current_line ~= "│   " then
+                    current_line = current_line .. ", " .. word
+                else
+                    current_line = current_line .. word
+                end
+            end
+        end
+        if current_line ~= "│   " then
+            table.insert(lines, current_line .. string.rep(" ", max_width - #current_line + 1) .. "│")
+        end
+        table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+    end
+    
+    -- Instructions
+    table.insert(lines, "│ Press 'b' for backlinks | 'o' for orphans | 'h' for hubs │")
+    table.insert(lines, "│ Press 'f' to find file  | 'q' to quit                   │")
+    table.insert(lines, "╰" .. string.rep("─", max_width) .. "╯")
+    
+    -- Display in floating window
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].buftype = 'nofile'
+    
+    local width = max_width + 2
+    local height = math.min(#lines, vim.o.lines - 4)
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative = "editor",
+        width = width,
+        height = height,
+        col = math.floor((vim.o.columns - width) / 2),
+        row = math.floor((vim.o.lines - height) / 2),
+        style = "minimal",
+        border = "rounded",
+        title = " Wiki Graph ",
+        title_pos = "center"
+    })
+    
+    local keymap_opts = { buffer = buf, nowait = true, silent = true }
+    
+    -- Keybindings
+    vim.keymap.set('n', 'q', function()
+        vim.api.nvim_win_close(win, true)
+    end, keymap_opts)
+    
+    vim.keymap.set('n', '<Esc>', function()
+        vim.api.nvim_win_close(win, true)
+    end, keymap_opts)
+    
+    vim.keymap.set('n', 'b', function()
+        vim.api.nvim_win_close(win, true)
+        M.backlinks()
+    end, keymap_opts)
+    
+    vim.keymap.set('n', 'f', function()
+        vim.api.nvim_win_close(win, true)
+        M.wiki()
+    end, keymap_opts)
+    
+    vim.keymap.set('n', 'h', function()
+        vim.api.nvim_win_close(win, true)
+        -- Show hubs in fzf
+        local fzf = require_fzf()
+        if fzf and #hubs > 0 then
+            local hub_items = {}
+            for _, hub in ipairs(hubs) do
+                table.insert(hub_items, hub.name .. ".md")
+            end
+            fzf.fzf_exec(hub_items, {
+                prompt = "Hub Files> ",
+                actions = {
+                    ['default'] = function(selected)
+                        if selected and selected[1] then
+                            local filename = selected[1]
+                            open_wiki_file(M.wikidir .. '/' .. filename)
+                        end
+                    end
+                }
+            })
+        end
+    end, keymap_opts)
+    
+    vim.keymap.set('n', 'o', function()
+        vim.api.nvim_win_close(win, true)
+        -- Show orphans in fzf
+        local fzf = require_fzf()
+        if fzf and #orphans > 0 then
+            local orphan_items = {}
+            for _, orphan in ipairs(orphans) do
+                table.insert(orphan_items, orphan .. ".md")
+            end
+            fzf.fzf_exec(orphan_items, {
+                prompt = "Orphan Files> ",
+                actions = {
+                    ['default'] = function(selected)
+                        if selected and selected[1] then
+                            local filename = selected[1]
+                            open_wiki_file(M.wikidir .. '/' .. filename)
+                        end
+                    end
+                }
+            })
+        end
+    end, keymap_opts)
+end
+
+-- Main picker entry point
+function M.picker()
+    M.show_menu(main_choices, "womwiki")
+end
+
+return M
+
