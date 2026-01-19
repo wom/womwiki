@@ -1,5 +1,7 @@
 local M = {}
 
+M.version = "0.0.1"
+
 M.config = {
 	path = os.getenv("HOME") .. "/src/wiki",
 	picker = nil, -- Optional: 'telescope', 'mini', 'fzf'
