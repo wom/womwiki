@@ -11,6 +11,11 @@ One of the following picker plugins is required:
 
 The plugin will automatically detect which one is available and use it.
 
+## Optional Enhancements
+
+For improved markdown viewing experience:
+- [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) - Beautiful inline markdown rendering with proper formatting, checkboxes, and code blocks
+
 ## Installation
 
 Using [lazy.nvim](https://github.com/folke/lazy.nvim):
@@ -27,6 +32,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   config = function()
     require("womwiki").setup({
       path = "~/src/wiki", -- Path to your wiki
+      picker = nil, -- Optional: 'telescope', 'mini', or 'fzf'. Defaults to auto-detect.
     })
   end,
 }

@@ -290,6 +290,10 @@ local function create_file_with_template(filename, template, subs)
     end
 
     local file = io.open(filename, "w")
+    if not file then
+        vim.notify("Failed to create file: " .. filename, vim.log.levels.ERROR)
+        return
+    end
     file:write(template_content)
     file:close()
 end
@@ -300,8 +304,11 @@ function M.open_daily(days_offset)
     local date = os.date("%Y-%m-%d", os.time() + days_offset * 86400)
     local filename = M.dailydir .. '/' .. date .. ".md"
     
+    -- Expand ~ and other path components for io.open() compatibility
+    local expanded_filename = vim.fn.expand(filename)
+    
     -- Check if the file exists
-    local file = io.open(filename, "r")
+    local file = io.open(expanded_filename, "r")
     if file then
         file:close()
     else
@@ -310,7 +317,7 @@ function M.open_daily(days_offset)
         local subs = {
             {"date", date}
         }
-        create_file_with_template(filename, template, subs)
+        create_file_with_template(expanded_filename, template, subs)
     end
 
     -- Open the file in the editor with 20% height or minimum 10 lines
@@ -321,7 +328,7 @@ end
 
 function M.close_daily()
     if vim.b.womwiki then
-        vim.cmd('bd')  -- Close the buffer
+        vim.cmd('quit')  -- Close the window and buffer
     else
         print("Not a womwiki buffer")
     end
@@ -626,33 +633,57 @@ function M.dailies_menu()
     M.show_menu({
         { "Calendar", M.calendar },
         { "Browse All", M.dailies },
-        { "Today", function() M.open_daily() end },
         { "Yesterday", function() M.open_daily(-1) end },
-        { "Close Daily", M.close_daily },
         { "Cleanup Empty", M.cleanup },
     }, "Dailies Menu", M.picker)
 end
 
--- Submenu for Browse operations
+-- Submenu for Browse & Search operations
 function M.browse_menu()
     M.show_menu({
         { "All Wikis", M.wiki },
-        { "Recent", M.recent },
+        { "Search", M.search },
+        { "Create", M.create_file },
     }, "Browse Menu", M.picker)
 end
 
--- Main menu choices
-local main_choices = {
-    { "Today", function() M.open_daily() end },
-    { "Close Daily", M.close_daily },
-    { "Recent", M.recent },
-    { "Search", M.search },
-    { "Create", M.create_file },
-    { "Backlinks", M.backlinks },
-    { "Graph View", M.show_graph },
-    { "Dailies >", M.dailies_menu },
-    { "Browse >", M.browse_menu },
-}
+-- Submenu for Analysis operations
+function M.analyze_menu()
+    M.show_menu({
+        { "Backlinks", M.backlinks },
+        { "Graph View", M.show_graph },
+    }, "Analyze Menu", M.picker)
+end
+
+-- Helper to check if current buffer is today's daily note
+local function is_today_daily_open()
+    if not vim.b.womwiki then
+        return false
+    end
+    local today = os.date("%Y-%m-%d")
+    local current_file = vim.fn.expand("%:t:r")
+    return current_file == today
+end
+
+-- Main menu choices (dynamically generated)
+local function get_main_choices()
+    local choices = {}
+    
+    -- Smart Today/Close Daily toggle
+    if is_today_daily_open() then
+        table.insert(choices, { "Close Daily", M.close_daily })
+    else
+        table.insert(choices, { "Today", function() M.open_daily() end })
+    end
+    
+    table.insert(choices, { "Recent", M.recent })
+    table.insert(choices, { "---", nil })
+    table.insert(choices, { "Dailies >", M.dailies_menu })
+    table.insert(choices, { "Browse >", M.browse_menu })
+    table.insert(choices, { "Analyze >", M.analyze_menu })
+    
+    return choices
+end
 
 -- Generic menu display function
 function M.show_menu(choices, title, back_func)
@@ -1144,7 +1175,7 @@ end
 
 -- Main picker entry point
 function M.picker()
-    M.show_menu(main_choices, "womwiki")
+    M.show_menu(get_main_choices(), "womwiki")
 end
 
 return M
