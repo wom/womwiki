@@ -2,13 +2,13 @@
 
 local has_womwiki, womwiki = pcall(require, "womwiki")
 if not has_womwiki then
-  return
+	return
 end
 
 -- Default keymaps
 -- You can disable these by setting vim.g.womwiki_disable_mappings = true
 if not vim.g.womwiki_disable_mappings then
-  vim.keymap.set({"n", "v"}, "<leader>w", womwiki.picker, { desc = "womwiki!" })
-  vim.keymap.set("n", "<leader>wb", womwiki.backlinks, { desc = "womwiki backlinks" })
-  vim.keymap.set("n", "<leader>wg", womwiki.show_graph, { desc = "womwiki graph view" })
+	vim.keymap.set({ "n", "v" }, "<leader>w", womwiki.picker, { desc = "womwiki!" })
+	vim.keymap.set("n", "<leader>wb", womwiki.backlinks, { desc = "womwiki backlinks" })
+	vim.keymap.set("n", "<leader>wg", womwiki.show_graph, { desc = "womwiki graph view" })
 end
