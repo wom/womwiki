@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install tools
+        run: make install
+
+      - name: Run checks
+        run: make check
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        neovim: [stable, nightly]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim ${{ matrix.neovim }}
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+
+      - name: Run smoke test
+        run: |
+          nvim --version
+          nvim --headless -u tests/minimal_init.lua -c "lua require('tests.smoke_test')" -c "qa!"
