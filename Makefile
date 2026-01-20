@@ -2,7 +2,7 @@
 STYLUA := $(shell which stylua 2>/dev/null || echo "$$HOME/.cargo/bin/stylua")
 LUACHECK := $(shell which luacheck 2>/dev/null || echo "$$HOME/.luarocks/bin/luacheck")
 
-.PHONY: install lint format format-fix check all
+.PHONY: install lint format format-fix check test all
 
 # Install dependencies
 install:
@@ -28,5 +28,9 @@ format-fix:
 # Run all checks
 check: lint format
 
+# Run smoke test
+test:
+	nvim --headless -u tests/minimal_init.lua -c "lua require('tests.smoke_test')" -c "qa!"
+
 # Default target
-all: check
+all: check test
