@@ -676,11 +676,11 @@ function M.cleanup()
 	end, keymap_opts)
 end
 
--- Submenu for Dailies operations
-function M.dailies_menu()
+-- Submenu for Browse & Search operations
+function M.browse_and_search_menu()
 	M.show_menu({
-		{ "Calendar", M.calendar },
-		{ "Browse All", M.wiki },
+		{ "Browse All Notes", M.wiki },
+		{ "Browse Dailies", M.dailies },
 		{ "Search Dailies", M.dailies },
 		{
 			"Yesterday",
@@ -688,17 +688,7 @@ function M.dailies_menu()
 				M.open_daily(-1)
 			end,
 		},
-		{ "Cleanup Empty", M.cleanup },
-	}, "Dailies Menu", M.picker)
-end
-
--- Submenu for Browse & Search operations
-function M.browse_menu()
-	M.show_menu({
-		{ "Browse All", M.wiki },
-		{ "Search", M.search },
-		{ "Create", M.create_file },
-	}, "Browse Menu", M.picker)
+	}, "Browse & Search", M.picker)
 end
 
 -- Submenu for Analysis operations
@@ -706,7 +696,8 @@ function M.analyze_menu()
 	M.show_menu({
 		{ "Backlinks", M.backlinks },
 		{ "Graph View", M.show_graph },
-	}, "Analyze Menu", M.picker)
+		{ "Cleanup Empty Dailies", M.cleanup },
+	}, "Analyze", M.picker)
 end
 
 -- Helper to check if current buffer is today's daily note
@@ -736,9 +727,11 @@ local function get_main_choices()
 	end
 
 	table.insert(choices, { "Recent", M.recent })
+	table.insert(choices, { "Calendar", M.calendar })
+	table.insert(choices, { "Search", M.search })
+	table.insert(choices, { "Create", M.create_file })
 	table.insert(choices, { "---", nil })
-	table.insert(choices, { "Dailies >", M.dailies_menu })
-	table.insert(choices, { "Browse >", M.browse_menu })
+	table.insert(choices, { "Browse & Search >", M.browse_and_search_menu })
 	table.insert(choices, { "Analyze >", M.analyze_menu })
 
 	return choices

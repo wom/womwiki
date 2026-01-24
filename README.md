@@ -52,9 +52,31 @@ require("womwiki").setup({
 ## Keymaps
 
 Global mappings (can be disabled by setting `vim.g.womwiki_disable_mappings = true`):
-- `<leader>w`: Open wiki picker
+- `<leader>w`: Open wiki menu
 - `<leader>wb`: Show backlinks
 - `<leader>wg`: Show graph view
+
+### Wiki Menu Structure
+
+The main menu (`<leader>w`) provides quick access to common operations:
+
+**Top Level (Quick Actions):**
+- Today/Close Daily - Open today's daily note or close it if already open
+- Recent - Browse recently opened wiki files
+- Calendar - Visual calendar view of daily notes
+- Search - Search content across all wiki notes
+- Create - Create a new wiki note
+
+**Browse & Search submenu:**
+- Browse All Notes - Browse all wiki files
+- Browse Dailies - Browse daily note files
+- Search Dailies - Search within daily notes by filename
+- Yesterday - Open yesterday's daily note
+
+**Analyze submenu:**
+- Backlinks - Show files that link to current note
+- Graph View - Visualize note connections
+- Cleanup Empty Dailies - Remove empty daily notes
 
 Markdown buffer mappings:
 - `<leader>ml`: Convert word to markdown link
