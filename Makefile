@@ -2,13 +2,18 @@
 STYLUA := $(shell which stylua 2>/dev/null || echo "$$HOME/.cargo/bin/stylua")
 LUACHECK := $(shell which luacheck 2>/dev/null || echo "$$HOME/.luarocks/bin/luacheck")
 
-.PHONY: install lint format format-fix check test all
+.PHONY: install lint format format-fix check syntax test all
 
 # Install dependencies
 install:
 	cargo install stylua
 	luarocks install --local luacheck
 	@echo "Tools installed. Make sure ~/.cargo/bin and ~/.luarocks/bin are in your PATH"
+
+# Quick syntax check (no dependencies required)
+syntax:
+	@echo "Checking Lua syntax..."
+	@find lua/ plugin/ ftplugin/ -name "*.lua" -exec luac -p {} \; && echo "✓ Syntax OK"
 
 # Run luacheck for linting
 lint:
@@ -26,7 +31,7 @@ format-fix:
 	$(STYLUA) lua/ plugin/ ftplugin/
 
 # Run all checks
-check: lint format
+check: syntax lint format
 
 # Run smoke test
 test:

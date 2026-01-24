@@ -4,7 +4,7 @@ M.version = "0.0.1"
 
 M.config = {
 	path = os.getenv("HOME") .. "/src/wiki",
-	picker = nil, -- Optional: 'telescope', 'mini', 'fzf'
+	picker = nil, -- Optional: 'telescope', 'mini', 'fzf', 'snacks'
 }
 
 local function update_paths()
@@ -42,11 +42,20 @@ local function get_picker()
 		end
 		vim.notify("Configured picker 'fzf' is not installed", vim.log.levels.ERROR)
 		return nil, nil
+	elseif M.config.picker == "snacks" then
+		if pcall(require, "snacks") then
+			return "snacks", require("snacks")
+		end
+		vim.notify("Configured picker 'snacks' is not installed", vim.log.levels.ERROR)
+		return nil, nil
 	end
 
 	-- Auto-detect if no preference configured
+	-- Check for snacks (modern, feature-rich)
+	if pcall(require, "snacks") then
+		return "snacks", require("snacks")
 	-- Check for fzf-lua (fast, feature-rich)
-	if pcall(require, "fzf-lua") then
+	elseif pcall(require, "fzf-lua") then
 		return "fzf", require("fzf-lua")
 	-- Check for mini.pick (lightweight, modern)
 	elseif pcall(require, "mini.pick") then
@@ -56,7 +65,7 @@ local function get_picker()
 		return "telescope", require("telescope.builtin")
 	else
 		vim.notify(
-			"No picker installed. Please install one of: fzf-lua, mini.pick, or telescope.nvim",
+			"No picker installed. Please install one of: snacks, fzf-lua, mini.pick, or telescope.nvim",
 			vim.log.levels.ERROR
 		)
 		return nil, nil
@@ -98,7 +107,6 @@ end
 
 -- Print a greeting and list all files in the daily directory
 function M.hello()
-	print("yooo")
 	local _ = M.list_files()
 end
 
@@ -110,14 +118,13 @@ function M.wiki()
 	end
 
 	if picker_type == "telescope" then
-		picker.find_files({ cwd = M.wikidir })
+		picker.find_files({ cwd = M.wikidir, hidden = false })
 	elseif picker_type == "mini" then
-		picker.builtin.files({ source = { cwd = M.wikidir } })
+		picker.builtin.files({}, { source = { cwd = M.wikidir } })
+	elseif picker_type == "snacks" then
+		picker.picker.files({ cwd = M.wikidir })
 	elseif picker_type == "fzf" then
-		picker.files({
-			cwd = M.wikidir,
-			fzf_opts = { ["--sort"] = true },
-		})
+		picker.files({ cwd = M.wikidir })
 	end
 end
 
@@ -128,15 +135,20 @@ function M.dailies()
 		return
 	end
 
+	-- Ensure dailydir is set
+	if not M.dailydir or M.dailydir == "" then
+		vim.notify("Daily directory not configured", vim.log.levels.ERROR)
+		return
+	end
+
 	if picker_type == "telescope" then
-		picker.find_files({ cwd = M.dailydir })
+		picker.find_files({ cwd = M.dailydir, hidden = false })
 	elseif picker_type == "mini" then
-		picker.builtin.files({ source = { cwd = M.dailydir } })
+		picker.builtin.files({}, { source = { cwd = M.dailydir } })
+	elseif picker_type == "snacks" then
+		picker.picker.files({ cwd = M.dailydir })
 	elseif picker_type == "fzf" then
-		picker.files({
-			cwd = M.dailydir,
-			fzf_opts = { ["--sort"] = true },
-		})
+		picker.files({ cwd = M.dailydir })
 	end
 end
 
@@ -187,13 +199,8 @@ function M.create_file()
 					local file = io.open(full_path, "r")
 					if file then
 						file:close()
-						vim.ui.input({
-							prompt = "File exists! Overwrite? (y/N): ",
-						}, function(confirm)
-							if confirm and confirm:lower() == "y" then
-								open_wiki_file(full_path)
-							end
-						end)
+						-- File exists, just open it
+						open_wiki_file(full_path)
 					else
 						-- Create new file
 						local new_file = io.open(full_path, "w")
@@ -263,6 +270,17 @@ function M.recent()
 				open_wiki_file(item)
 			end,
 		})
+	elseif picker_type == "snacks" then
+		picker.picker.pick({
+			source = wiki_files,
+			prompt = "Recent Wiki Files",
+			format = function(item)
+				return item
+			end,
+			confirm = function(item)
+				open_wiki_file(item)
+			end,
+		})
 	elseif picker_type == "fzf" then
 		picker.fzf_exec(wiki_files, {
 			prompt = "Recent Wiki Files> ",
@@ -289,7 +307,9 @@ function M.search()
 		picker.live_grep({ cwd = M.wikidir })
 	elseif picker_type == "mini" then
 		-- Note: mini.pick doesn't have live_grep built-in, using grep builtin instead
-		picker.builtin.grep_live({ source = { cwd = M.wikidir } })
+		picker.builtin.grep_live({}, { source = { cwd = M.wikidir } })
+	elseif picker_type == "snacks" then
+		picker.picker.grep({ cwd = M.wikidir })
 	elseif picker_type == "fzf" then
 		picker.live_grep({ cwd = M.wikidir })
 	end
@@ -351,7 +371,7 @@ function M.close_daily()
 	if vim.b.womwiki then
 		vim.cmd("quit") -- Close the window and buffer
 	else
-		print("Not a womwiki buffer")
+		vim.notify("Not a womwiki buffer", vim.log.levels.WARN)
 	end
 end
 
@@ -660,7 +680,8 @@ end
 function M.dailies_menu()
 	M.show_menu({
 		{ "Calendar", M.calendar },
-		{ "Browse All", M.dailies },
+		{ "Browse All", M.wiki },
+		{ "Search Dailies", M.dailies },
 		{
 			"Yesterday",
 			function()
@@ -674,7 +695,7 @@ end
 -- Submenu for Browse & Search operations
 function M.browse_menu()
 	M.show_menu({
-		{ "All Wikis", M.wiki },
+		{ "Browse All", M.wiki },
 		{ "Search", M.search },
 		{ "Create", M.create_file },
 	}, "Browse Menu", M.picker)
@@ -918,8 +939,12 @@ function M.backlinks()
 	elseif picker_type == "mini" then
 		-- For mini.pick, we'll use a simpler approach
 		picker.builtin.grep_live({
-			source = { cwd = M.wikidir },
 			default_text = current_file,
+		}, { source = { cwd = M.wikidir } })
+	elseif picker_type == "snacks" then
+		picker.picker.grep({
+			search = table.concat(search_patterns, "|"),
+			cwd = M.wikidir,
 		})
 	elseif picker_type == "fzf" then
 		picker.grep({
@@ -1185,6 +1210,17 @@ function M.show_graph()
 						open_wiki_file(M.wikidir .. "/" .. item)
 					end,
 				})
+			elseif picker_type == "snacks" then
+				picker.picker.pick({
+					source = hub_items,
+					prompt = "Hub Files",
+					format = function(item)
+						return item
+					end,
+					confirm = function(item)
+						open_wiki_file(M.wikidir .. "/" .. item)
+					end,
+				})
 			elseif picker_type == "fzf" then
 				picker.fzf_exec(hub_items, {
 					prompt = "Hub Files> ",
@@ -1235,6 +1271,17 @@ function M.show_graph()
 				picker.start({
 					source = { items = orphan_items, name = "Orphan Files" },
 					choose = function(item)
+						open_wiki_file(M.wikidir .. "/" .. item)
+					end,
+				})
+			elseif picker_type == "snacks" then
+				picker.picker.pick({
+					source = orphan_items,
+					prompt = "Orphan Files",
+					format = function(item)
+						return item
+					end,
+					confirm = function(item)
 						open_wiki_file(M.wikidir .. "/" .. item)
 					end,
 				})
