@@ -21,6 +21,58 @@ end
 -- Initialize with defaults
 update_paths()
 
+-- Built-in default template for daily notes
+local DEFAULT_DAILY_TEMPLATE = [[# {{ date }}
+## Standup
+* Vibe:
+* ToDone:
+* ToDo:
+* Blocking:
+## Log
+]]
+
+-- Helper: Get daily template path with fallback logic
+-- Priority: 1. Wiki template, 2. Config template, 3. Built-in default
+local function get_daily_template_path()
+	-- Check wiki template first
+	local wiki_template = M.wikidir .. "/.templates/daily.md"
+	local file = io.open(vim.fn.expand(wiki_template), "r")
+	if file then
+		file:close()
+		return wiki_template, "wiki"
+	end
+
+	-- Check user config template
+	local config_template = os.getenv("HOME") .. "/.config/nvim/templates/daily.templ"
+	file = io.open(config_template, "r")
+	if file then
+		file:close()
+		return config_template, "config"
+	end
+
+	-- Use built-in default
+	return nil, "builtin"
+end
+
+-- Helper: Get daily template content
+local function get_daily_template_content()
+	local template_path, source = get_daily_template_path()
+	
+	if source == "builtin" then
+		return DEFAULT_DAILY_TEMPLATE
+	end
+
+	local file = io.open(template_path, "r")
+	if not file then
+		vim.notify("Failed to read template: " .. template_path, vim.log.levels.ERROR)
+		return DEFAULT_DAILY_TEMPLATE
+	end
+
+	local content = file:read("*a")
+	file:close()
+	return content
+end
+
 -- Helper: Detect available picker and return picker type + module
 local function get_picker()
 	-- Use configured picker if available
@@ -354,11 +406,16 @@ function M.open_daily(days_offset)
 		file:close()
 	else
 		-- File doesn't exist, create it with the template content
-		local template = os.getenv("HOME") .. "/.config/nvim/templates/daily.templ"
-		local subs = {
-			{ "date", date },
-		}
-		create_file_with_template(expanded_filename, template, subs)
+		local template_content = get_daily_template_content()
+		local content = template_content:gsub("{{ date }}", date)
+		
+		file = io.open(expanded_filename, "w")
+		if not file then
+			vim.notify("Failed to create daily file: " .. expanded_filename, vim.log.levels.ERROR)
+			return
+		end
+		file:write(content)
+		file:close()
 	end
 
 	-- Open the file in the editor with 20% height or minimum 10 lines
@@ -577,15 +634,7 @@ end
 
 -- Cleanup unmodified daily notes
 function M.cleanup()
-	local template_path = os.getenv("HOME") .. "/.config/nvim/templates/daily.templ"
-	local template_file = io.open(template_path, "r")
-	if not template_file then
-		vim.notify("Template file not found: " .. template_path, vim.log.levels.ERROR)
-		return
-	end
-
-	local template_content = template_file:read("*a")
-	template_file:close()
+	local template_content = get_daily_template_content()
 
 	local files = M.list_files()
 	local unmodified_files = {}
@@ -696,8 +745,61 @@ function M.analyze_menu()
 	M.show_menu({
 		{ "Backlinks", M.backlinks },
 		{ "Graph View", M.show_graph },
-		{ "Cleanup Empty Dailies", M.cleanup },
 	}, "Analyze", M.picker)
+end
+
+-- Submenu for Settings/Tools
+function M.settings_menu()
+	M.show_menu({
+		{ "Edit Daily Template", M.edit_daily_template },
+		{ "Cleanup Empty Dailies", M.cleanup },
+	}, "Settings/Tools", M.picker)
+end
+
+-- Edit daily template
+function M.edit_daily_template()
+	-- Always use/create wiki template
+	local wiki_template = M.wikidir .. "/.templates/daily.md"
+	local template_dir = M.wikidir .. "/.templates"
+	local expanded_path = vim.fn.expand(wiki_template)
+	
+	-- Check if wiki template already exists
+	local file = io.open(expanded_path, "r")
+	if file then
+		file:close()
+		-- Template exists, just open it
+		open_wiki_file(wiki_template)
+		return
+	end
+	
+	-- Wiki template doesn't exist - create it
+	vim.fn.mkdir(vim.fn.expand(template_dir), "p")
+	
+	-- Check if config template exists to copy from
+	local _, source = get_daily_template_path()
+	local content
+	
+	if source == "config" then
+		-- Copy from config template
+		content = get_daily_template_content()
+		vim.notify("Migrating config template to wiki template", vim.log.levels.INFO)
+	else
+		-- Use built-in default
+		content = DEFAULT_DAILY_TEMPLATE
+		vim.notify("Created wiki template from built-in default", vim.log.levels.INFO)
+	end
+	
+	-- Write template to file
+	file = io.open(expanded_path, "w")
+	if not file then
+		vim.notify("Failed to create template file: " .. wiki_template, vim.log.levels.ERROR)
+		return
+	end
+	file:write(content)
+	file:close()
+	
+	-- Open the template file
+	open_wiki_file(wiki_template)
 end
 
 -- Helper to check if current buffer is today's daily note
@@ -733,6 +835,7 @@ local function get_main_choices()
 	table.insert(choices, { "---", nil })
 	table.insert(choices, { "Browse & Search >", M.browse_and_search_menu })
 	table.insert(choices, { "Analyze >", M.analyze_menu })
+	table.insert(choices, { "Settings/Tools >", M.settings_menu })
 
 	return choices
 end

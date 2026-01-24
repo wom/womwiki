@@ -76,7 +76,44 @@ The main menu (`<leader>w`) provides quick access to common operations:
 **Analyze submenu:**
 - Backlinks - Show files that link to current note
 - Graph View - Visualize note connections
-- Cleanup Empty Dailies - Remove empty daily notes
+
+**Settings/Tools submenu:**
+- Edit Daily Template - Customize the template used for new daily notes
+- Cleanup Empty Dailies - Remove empty daily notes that match the template
+
+## Daily Note Templates
+
+The plugin uses a customizable template for creating daily notes. Templates support the `{{ date }}` variable which is replaced with the date in YYYY-MM-DD format.
+
+### Template Priority
+
+The plugin searches for templates in the following order:
+1. **Wiki template**: `<wikidir>/.templates/daily.md` (recommended)
+2. **Config template**: `~/.config/nvim/templates/daily.templ` (legacy)
+3. **Built-in default**: Used if no custom template exists
+
+### Customizing the Template
+
+Use the menu: `<leader>w` → `Settings` → `Edit Daily Template`
+
+This will:
+- Open your wiki template if it exists
+- Create a new template from the built-in default if needed
+- Automatically create the `.templates` directory in your wiki
+
+### Default Template
+
+```markdown
+# {{ date }}
+## Standup
+* Vibe:
+* ToDone:
+* ToDo:
+* Blocking:
+## Log
+```
+
+**Note:** Keep your template in your wiki directory (`<wikidir>/.templates/daily.md`) to make your wiki self-contained and portable.
 
 Markdown buffer mappings:
 - `<leader>ml`: Convert word to markdown link
