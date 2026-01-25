@@ -57,7 +57,7 @@ end
 -- Helper: Get daily template content
 local function get_daily_template_content()
 	local template_path, source = get_daily_template_path()
-	
+
 	if source == "builtin" then
 		return DEFAULT_DAILY_TEMPLATE
 	end
@@ -367,30 +367,6 @@ function M.search()
 	end
 end
 
-local function create_file_with_template(filename, template, subs)
-	local template_file = io.open(template, "r")
-	if not template_file then
-		vim.notify("Template file not found: " .. template, vim.log.levels.ERROR)
-		return
-	end
-
-	local template_content = template_file:read("*a")
-	template_file:close()
-
-	for _, sub_pair in ipairs(subs) do
-		local key, value = sub_pair[1], sub_pair[2]
-		template_content = template_content:gsub("{{ " .. key .. " }}", value)
-	end
-
-	local file = io.open(filename, "w")
-	if not file then
-		vim.notify("Failed to create file: " .. filename, vim.log.levels.ERROR)
-		return
-	end
-	file:write(template_content)
-	file:close()
-end
-
 -- Open or create a daily file with a specified offset in days
 function M.open_daily(days_offset)
 	days_offset = days_offset or 0
@@ -408,7 +384,7 @@ function M.open_daily(days_offset)
 		-- File doesn't exist, create it with the template content
 		local template_content = get_daily_template_content()
 		local content = template_content:gsub("{{ date }}", date)
-		
+
 		file = io.open(expanded_filename, "w")
 		if not file then
 			vim.notify("Failed to create daily file: " .. expanded_filename, vim.log.levels.ERROR)
@@ -762,7 +738,7 @@ function M.edit_daily_template()
 	local wiki_template = M.wikidir .. "/.templates/daily.md"
 	local template_dir = M.wikidir .. "/.templates"
 	local expanded_path = vim.fn.expand(wiki_template)
-	
+
 	-- Check if wiki template already exists
 	local file = io.open(expanded_path, "r")
 	if file then
@@ -771,14 +747,14 @@ function M.edit_daily_template()
 		open_wiki_file(wiki_template)
 		return
 	end
-	
+
 	-- Wiki template doesn't exist - create it
 	vim.fn.mkdir(vim.fn.expand(template_dir), "p")
-	
+
 	-- Check if config template exists to copy from
 	local _, source = get_daily_template_path()
 	local content
-	
+
 	if source == "config" then
 		-- Copy from config template
 		content = get_daily_template_content()
@@ -788,7 +764,7 @@ function M.edit_daily_template()
 		content = DEFAULT_DAILY_TEMPLATE
 		vim.notify("Created wiki template from built-in default", vim.log.levels.INFO)
 	end
-	
+
 	-- Write template to file
 	file = io.open(expanded_path, "w")
 	if not file then
@@ -797,7 +773,7 @@ function M.edit_daily_template()
 	end
 	file:write(content)
 	file:close()
-	
+
 	-- Open the template file
 	open_wiki_file(wiki_template)
 end
