@@ -21,6 +21,20 @@ end
 -- Initialize with defaults
 update_paths()
 
+-- Setup highlight groups for graph view
+local function setup_graph_highlights()
+	vim.api.nvim_set_hl(0, "WomwikiGraphHeader", { link = "Title", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiGraphStats", { link = "Number", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiGraphHub", { link = "String", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiGraphOrphan", { link = "Comment", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiGraphCurrent", { link = "Special", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiGraphKey", { link = "Keyword", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiGraphBorder", { link = "FloatBorder", default = true })
+end
+
+-- Call on module load
+setup_graph_highlights()
+
 -- Built-in default template for daily notes
 local DEFAULT_DAILY_TEMPLATE = [[# {{ date }}
 ## Standup
@@ -1082,14 +1096,22 @@ function M.show_graph()
 
 	-- Build graph display
 	local lines = {}
-	local max_width = 60
+	local highlights = {} -- Track which lines need highlighting
+	-- Make width responsive: 70% of screen width, min 60, max 120
+	local max_width = math.max(60, math.min(120, math.floor(vim.o.columns * 0.7)))
 
 	-- Header
 	table.insert(lines, "╭─ Wiki Link Graph " .. string.rep("─", max_width - 18) .. "╮")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
 	if current_file ~= "" then
 		table.insert(lines, "│ Current: " .. current_file .. string.rep(" ", max_width - 10 - #current_file) .. "│")
+		table.insert(
+			highlights,
+			{ line = #lines - 1, hl_group = "WomwikiGraphCurrent", col_start = 10, col_end = 10 + #current_file }
+		)
 	end
 	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
 
 	-- Calculate stats
 	local total_files = 0
@@ -1097,12 +1119,19 @@ function M.show_graph()
 	local orphans = {}
 	local hubs = {}
 
+	-- Helper to check if file is in daily directory
+	local function is_daily_note(filepath)
+		local daily_prefix = M.dailydir:gsub("^" .. M.wikidir .. "/", "")
+		return filepath:match("^" .. vim.pesc(daily_prefix) .. "/")
+	end
+
 	for name, data in pairs(graph) do
 		total_files = total_files + 1
 		total_links = total_links + #data.links_to
 
-		-- Find orphans (no incoming links)
-		if #data.linked_from == 0 then
+		-- Find true orphans (no connections at all, excluding daily notes)
+		local total_connections = #data.linked_from + #data.links_to
+		if total_connections == 0 and not is_daily_note(data.path) then
 			table.insert(orphans, name)
 		end
 
@@ -1117,19 +1146,23 @@ function M.show_graph()
 		return a.count > b.count
 	end)
 
-	-- Stats section
-	table.insert(
-		lines,
-		"│ Files: "
-			.. total_files
-			.. " | Links: "
-			.. total_links
-			.. " | Orphans: "
-			.. #orphans
-			.. string.rep(" ", max_width - 30 - #tostring(total_files) - #tostring(total_links) - #tostring(#orphans))
-			.. "│"
-	)
+	-- Calculate connection density
+	local avg_links = total_files > 0 and string.format("%.1f", total_links / total_files) or "0"
+
+	-- Stats section with density
+	local stats_line = "│ Files: "
+		.. total_files
+		.. " | Links: "
+		.. total_links
+		.. " | Avg: "
+		.. avg_links
+		.. " | Orphans: "
+		.. #orphans
+	local stats_padding = max_width - #stats_line + 1
+	table.insert(lines, stats_line .. string.rep(" ", stats_padding) .. "│")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphStats" })
 	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
 
 	-- Current file details (if in a wiki file)
 	if current_file ~= "" and graph[current_file] then
@@ -1174,10 +1207,29 @@ function M.show_graph()
 		table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
 	end
 
-	-- Orphan files
+	-- Orphan files (limited display)
 	if #orphans > 0 then
-		table.insert(lines, "│ Orphan files (no backlinks):" .. string.rep(" ", max_width - 29) .. "│")
-		local orphan_text = table.concat(orphans, ", ")
+		local max_orphans_shown = 10
+		table.insert(
+			lines,
+			"│ Orphan files (no connections, excluding dailies):" .. string.rep(" ", max_width - 50) .. "│"
+		)
+
+		-- Sort orphans alphabetically
+		table.sort(orphans)
+
+		-- Show first N orphans
+		local orphans_to_show = {}
+		for i = 1, math.min(max_orphans_shown, #orphans) do
+			table.insert(orphans_to_show, orphans[i])
+		end
+
+		local orphan_text = table.concat(orphans_to_show, ", ")
+		if #orphans > max_orphans_shown then
+			orphan_text = orphan_text .. " ... and " .. (#orphans - max_orphans_shown) .. " more"
+		end
+
+		-- Word wrap orphan list
 		local words = vim.split(orphan_text, ", ")
 		local current_line = "│   "
 
@@ -1199,14 +1251,39 @@ function M.show_graph()
 		table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
 	end
 
-	-- Instructions
-	table.insert(lines, "│ Press 'b' for backlinks | 'o' for orphans | 'h' for hubs │")
-	table.insert(lines, "│ Press 'f' to find file  | 'q' to quit                   │")
+	-- Instructions with help text
+	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
+	table.insert(lines, "│ Terminology:" .. string.rep(" ", max_width - 13) .. "│")
+	table.insert(
+		lines,
+		"│   Hubs: Files with 3+ backlinks (well-connected)" .. string.rep(" ", max_width - 49) .. "│"
+	)
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphHub", col_start = 4, col_end = 8 })
+	table.insert(lines, "│   Orphans: Files with no connections at all" .. string.rep(" ", max_width - 44) .. "│")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphOrphan", col_start = 4, col_end = 11 })
+	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
+	local key_line1 = "│ [b]acklinks  [o]rphans  [h]ubs  [f]ind  [q]uit"
+	table.insert(lines, key_line1 .. string.rep(" ", max_width - #key_line1 + 1) .. "│")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphKey" })
 	table.insert(lines, "╰" .. string.rep("─", max_width) .. "╯")
+	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
 
 	-- Display in floating window
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+	-- Apply syntax highlighting
+	local ns_id = vim.api.nvim_create_namespace("womwiki_graph")
+	for _, hl in ipairs(highlights) do
+		if hl.col_start and hl.col_end then
+			vim.api.nvim_buf_add_highlight(buf, ns_id, hl.hl_group, hl.line, hl.col_start, hl.col_end)
+		else
+			vim.api.nvim_buf_add_highlight(buf, ns_id, hl.hl_group, hl.line, 0, -1)
+		end
+	end
+
 	vim.bo[buf].modifiable = false
 	vim.bo[buf].buftype = "nofile"
 
