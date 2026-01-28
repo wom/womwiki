@@ -1167,33 +1167,50 @@ function M.show_graph()
 	-- Current file details (if in a wiki file)
 	if current_file ~= "" and graph[current_file] then
 		local data = graph[current_file]
-		table.insert(lines, "│ Current file connections:" .. string.rep(" ", max_width - 25) .. "│")
+		local total_conn = #data.links_to + #data.linked_from
+		table.insert(
+			lines,
+			"│ Current file: "
+				.. current_file
+				.. " ("
+				.. total_conn
+				.. " connections)"
+				.. string.rep(" ", max_width - 27 - #current_file - #tostring(total_conn))
+				.. "│"
+		)
+		table.insert(
+			highlights,
+			{ line = #lines - 1, hl_group = "WomwikiGraphCurrent", col_start = 15, col_end = 15 + #current_file }
+		)
 
+		-- Links to (outgoing)
 		if #data.links_to > 0 then
-			table.insert(
-				lines,
-				"│   → Links to: "
-					.. table.concat(data.links_to, ", ")
-					.. string.rep(" ", math.max(0, max_width - 14 - #table.concat(data.links_to, ", ")))
-					.. "│"
-			)
+			local max_links_shown = 5
+			local links_text = table.concat(vim.list_slice(data.links_to, 1, max_links_shown), ", ")
+			if #data.links_to > max_links_shown then
+				links_text = links_text .. " ... and " .. (#data.links_to - max_links_shown) .. " more"
+			end
+			local links_line = "│   → Links to (" .. #data.links_to .. "): " .. links_text
+			table.insert(lines, links_line .. string.rep(" ", max_width - #links_line + 1) .. "│")
 		else
-			table.insert(lines, "│   → Links to: (none)" .. string.rep(" ", max_width - 19) .. "│")
+			table.insert(lines, "│   → Links to (0): (none)" .. string.rep(" ", max_width - 23) .. "│")
 		end
 
+		-- Linked from (incoming/backlinks)
 		if #data.linked_from > 0 then
-			table.insert(
-				lines,
-				"│   ← Linked from: "
-					.. table.concat(data.linked_from, ", ")
-					.. string.rep(" ", math.max(0, max_width - 17 - #table.concat(data.linked_from, ", ")))
-					.. "│"
-			)
+			local max_links_shown = 5
+			local backlinks_text = table.concat(vim.list_slice(data.linked_from, 1, max_links_shown), ", ")
+			if #data.linked_from > max_links_shown then
+				backlinks_text = backlinks_text .. " ... and " .. (#data.linked_from - max_links_shown) .. " more"
+			end
+			local backlinks_line = "│   ← Linked from (" .. #data.linked_from .. "): " .. backlinks_text
+			table.insert(lines, backlinks_line .. string.rep(" ", max_width - #backlinks_line + 1) .. "│")
 		else
-			table.insert(lines, "│   ← Linked from: (none)" .. string.rep(" ", max_width - 22) .. "│")
+			table.insert(lines, "│   ← Linked from (0): (none)" .. string.rep(" ", max_width - 26) .. "│")
 		end
 
 		table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
+		table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
 	end
 
 	-- Top hubs
@@ -1264,7 +1281,7 @@ function M.show_graph()
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphOrphan", col_start = 4, col_end = 11 })
 	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
-	local key_line1 = "│ [b]acklinks  [o]rphans  [h]ubs  [f]ind  [q]uit"
+	local key_line1 = "│ [b]acklinks  [o]rphans  [h]ubs  [e]xpand  [/]search  [f]ind  [q]uit"
 	table.insert(lines, key_line1 .. string.rep(" ", max_width - #key_line1 + 1) .. "│")
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphKey" })
 	table.insert(lines, "╰" .. string.rep("─", max_width) .. "╯")
@@ -1322,22 +1339,31 @@ function M.show_graph()
 		M.wiki()
 	end, keymap_opts)
 
-	vim.keymap.set("n", "h", function()
+	vim.keymap.set("n", "/", function()
 		vim.api.nvim_win_close(win, true)
-		-- Show hubs in picker
-		local picker_type, picker = get_picker()
-		if picker and #hubs > 0 then
-			local hub_items = {}
-			for _, hub in ipairs(hubs) do
-				table.insert(hub_items, hub.name .. ".md")
+
+		-- Use vim.schedule to ensure picker opens after window closes
+		vim.schedule(function()
+			-- Show all files in picker with fuzzy search (filter as you type)
+			local picker_type, picker = get_picker()
+
+			if not picker then
+				vim.notify("No picker available!", vim.log.levels.ERROR)
+				return
 			end
+
+			local all_files = {}
+			for name, _ in pairs(graph) do
+				table.insert(all_files, name .. ".md")
+			end
+			table.sort(all_files)
 
 			if picker_type == "telescope" then
 				require("telescope.pickers")
 					.new({}, {
-						prompt_title = "Hub Files",
+						prompt_title = "Search/Filter Files",
 						finder = require("telescope.finders").new_table({
-							results = hub_items,
+							results = all_files,
 						}),
 						sorter = require("telescope.config").values.generic_sorter({}),
 						attach_mappings = function(_, map)
@@ -1353,26 +1379,28 @@ function M.show_graph()
 					})
 					:find()
 			elseif picker_type == "mini" then
-				picker.start({
-					source = { items = hub_items, name = "Hub Files" },
-					choose = function(item)
-						open_wiki_file(M.wikidir .. "/" .. item)
-					end,
+				local selected = picker.start({
+					source = { items = all_files, name = "Search/Filter Files" },
 				})
+				if selected then
+					open_wiki_file(M.wikidir .. "/" .. selected)
+				end
 			elseif picker_type == "snacks" then
-				picker.picker.pick({
-					source = hub_items,
-					prompt = "Hub Files",
+				picker.picker.select(all_files, {
+					prompt = "Search/Filter Files",
 					format = function(item)
 						return item
 					end,
-					confirm = function(item)
-						open_wiki_file(M.wikidir .. "/" .. item)
-					end,
-				})
+				}, function(selected)
+					if selected then
+						-- Snacks may pass item as string or table
+						local filename = type(selected) == "table" and selected.text or selected
+						open_wiki_file(M.wikidir .. "/" .. filename)
+					end
+				end)
 			elseif picker_type == "fzf" then
-				picker.fzf_exec(hub_items, {
-					prompt = "Hub Files> ",
+				picker.fzf_exec(all_files, {
+					prompt = "Search/Filter Files> ",
 					actions = {
 						["default"] = function(selected)
 							if selected and selected[1] then
@@ -1383,6 +1411,245 @@ function M.show_graph()
 					},
 				})
 			end
+		end) -- Close vim.schedule
+	end, keymap_opts)
+
+	vim.keymap.set("n", "e", function()
+		vim.api.nvim_win_close(win, true)
+
+		-- Use vim.schedule to ensure picker opens after window closes
+		vim.schedule(function()
+			-- Show details for a specific file using fuzzy picker
+			local picker_type, picker = get_picker()
+
+			if not picker then
+				vim.notify("No picker available!", vim.log.levels.ERROR)
+				return
+			end
+
+			-- Helper to show file details in a floating window
+			local function show_file_details(filename)
+				-- Remove .md extension if present
+				local target_file = filename:gsub("%.md$", "")
+
+				if not graph[target_file] then
+					vim.notify("File not found in graph: " .. target_file, vim.log.levels.ERROR)
+					return
+				end
+
+				local data = graph[target_file]
+				local info_lines = {}
+				table.insert(info_lines, "╭─ File Details " .. string.rep("─", 50) .. "╮")
+				table.insert(info_lines, "│ File: " .. target_file .. string.rep(" ", 59 - #target_file) .. "│")
+				table.insert(
+					info_lines,
+					"│ Total connections: "
+						.. (#data.links_to + #data.linked_from)
+						.. string.rep(" ", 44 - #tostring(#data.links_to + #data.linked_from))
+						.. "│"
+				)
+				table.insert(info_lines, "├" .. string.rep("─", 65) .. "┤")
+				table.insert(
+					info_lines,
+					"│ Links to ("
+						.. #data.links_to
+						.. "):"
+						.. string.rep(" ", 52 - #tostring(#data.links_to))
+						.. "│"
+				)
+				if #data.links_to > 0 then
+					for _, link in ipairs(data.links_to) do
+						local line = "│   → " .. link
+						table.insert(info_lines, line .. string.rep(" ", 66 - #line) .. "│")
+					end
+				else
+					table.insert(info_lines, "│   (none)" .. string.rep(" ", 55) .. "│")
+				end
+				table.insert(info_lines, "├" .. string.rep("─", 65) .. "┤")
+				table.insert(
+					info_lines,
+					"│ Linked from ("
+						.. #data.linked_from
+						.. "):"
+						.. string.rep(" ", 49 - #tostring(#data.linked_from))
+						.. "│"
+				)
+				if #data.linked_from > 0 then
+					for _, link in ipairs(data.linked_from) do
+						local line = "│   ← " .. link
+						table.insert(info_lines, line .. string.rep(" ", 66 - #line) .. "│")
+					end
+				else
+					table.insert(info_lines, "│   (none)" .. string.rep(" ", 55) .. "│")
+				end
+				table.insert(info_lines, "╰" .. string.rep("─", 65) .. "╯")
+
+				-- Create and display floating window
+				local detail_buf = vim.api.nvim_create_buf(false, true)
+				vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, info_lines)
+				vim.bo[detail_buf].modifiable = false
+				vim.bo[detail_buf].buftype = "nofile"
+
+				local detail_width = 67
+				local detail_height = math.min(#info_lines, vim.o.lines - 4)
+				local detail_win = vim.api.nvim_open_win(detail_buf, true, {
+					relative = "editor",
+					width = detail_width,
+					height = detail_height,
+					col = math.floor((vim.o.columns - detail_width) / 2),
+					row = math.floor((vim.o.lines - detail_height) / 2),
+					style = "minimal",
+					border = "rounded",
+					title = " File Connections ",
+					title_pos = "center",
+				})
+
+				-- Close on q or Esc
+				vim.keymap.set("n", "q", function()
+					vim.api.nvim_win_close(detail_win, true)
+				end, { buffer = detail_buf, nowait = true, silent = true })
+				vim.keymap.set("n", "<Esc>", function()
+					vim.api.nvim_win_close(detail_win, true)
+				end, { buffer = detail_buf, nowait = true, silent = true })
+			end
+
+			-- Build list of all files
+			local all_files = {}
+			for name, _ in pairs(graph) do
+				table.insert(all_files, name .. ".md")
+			end
+			table.sort(all_files)
+
+			-- Show in picker
+			if picker_type == "telescope" then
+				require("telescope.pickers")
+					.new({}, {
+						prompt_title = "Select File to Expand",
+						finder = require("telescope.finders").new_table({
+							results = all_files,
+						}),
+						sorter = require("telescope.config").values.generic_sorter({}),
+						attach_mappings = function(_, map)
+							map("i", "<CR>", function(prompt_bufnr)
+								local selection = require("telescope.actions.state").get_selected_entry()
+								require("telescope.actions").close(prompt_bufnr)
+								if selection then
+									show_file_details(selection.value)
+								end
+							end)
+							return true
+						end,
+					})
+					:find()
+			elseif picker_type == "mini" then
+				local selected = picker.start({
+					source = { items = all_files, name = "Select File to Expand" },
+				})
+				if selected then
+					show_file_details(selected)
+				end
+			elseif picker_type == "snacks" then
+				picker.picker.select(all_files, {
+					prompt = "Select File to Expand",
+					format = function(item)
+						return item
+					end,
+				}, function(selected)
+					if selected then
+						-- Snacks may pass item as string or table
+						local filename = type(selected) == "table" and selected.text or selected
+						show_file_details(filename)
+					end
+				end)
+			elseif picker_type == "fzf" then
+				picker.fzf_exec(all_files, {
+					prompt = "Select File to Expand> ",
+					actions = {
+						["default"] = function(selected)
+							if selected and selected[1] then
+								vim.schedule(function()
+									show_file_details(selected[1])
+								end)
+							end
+						end,
+					},
+				})
+			end
+		end) -- Close vim.schedule
+	end, keymap_opts)
+
+	vim.keymap.set("n", "h", function()
+		vim.api.nvim_win_close(win, true)
+		-- Show hubs in picker
+		local picker_type, picker = get_picker()
+
+		if not picker then
+			vim.notify("No picker available!", vim.log.levels.ERROR)
+			return
+		end
+
+		if #hubs == 0 then
+			vim.notify("No hub files found (files with 3+ backlinks)", vim.log.levels.WARN)
+			return
+		end
+
+		local hub_items = {}
+		for _, hub in ipairs(hubs) do
+			table.insert(hub_items, hub.name .. ".md")
+		end
+
+		if picker_type == "telescope" then
+			require("telescope.pickers")
+				.new({}, {
+					prompt_title = "Hub Files",
+					finder = require("telescope.finders").new_table({
+						results = hub_items,
+					}),
+					sorter = require("telescope.config").values.generic_sorter({}),
+					attach_mappings = function(_, map)
+						map("i", "<CR>", function(prompt_bufnr)
+							local selection = require("telescope.actions.state").get_selected_entry()
+							require("telescope.actions").close(prompt_bufnr)
+							if selection then
+								open_wiki_file(M.wikidir .. "/" .. selection.value)
+							end
+						end)
+						return true
+					end,
+				})
+				:find()
+		elseif picker_type == "mini" then
+			local selected = picker.start({
+				source = { items = hub_items, name = "Hub Files" },
+			})
+			if selected then
+				open_wiki_file(M.wikidir .. "/" .. selected)
+			end
+		elseif picker_type == "snacks" then
+			picker.picker.select(hub_items, {
+				prompt = "Hub Files",
+				format = function(item)
+					return item
+				end,
+			}, function(selected)
+				if selected then
+					-- Snacks may pass item as string or table
+					local filename = type(selected) == "table" and selected.text or selected
+					open_wiki_file(M.wikidir .. "/" .. filename)
+				end
+			end)
+		elseif picker_type == "fzf" then
+			picker.fzf_exec(hub_items, {
+				prompt = "Hub Files> ",
+				actions = {
+					["default"] = function(selected)
+						if selected and selected[1] then
+							local filename = selected[1]
+							open_wiki_file(M.wikidir .. "/" .. filename)
+						end
+					end,
+				},
+			})
 		end
 	end, keymap_opts)
 
@@ -1417,23 +1684,25 @@ function M.show_graph()
 					})
 					:find()
 			elseif picker_type == "mini" then
-				picker.start({
+				local selected = picker.start({
 					source = { items = orphan_items, name = "Orphan Files" },
-					choose = function(item)
-						open_wiki_file(M.wikidir .. "/" .. item)
-					end,
 				})
+				if selected then
+					open_wiki_file(M.wikidir .. "/" .. selected)
+				end
 			elseif picker_type == "snacks" then
-				picker.picker.pick({
-					source = orphan_items,
+				picker.picker.select(orphan_items, {
 					prompt = "Orphan Files",
 					format = function(item)
 						return item
 					end,
-					confirm = function(item)
-						open_wiki_file(M.wikidir .. "/" .. item)
-					end,
-				})
+				}, function(selected)
+					if selected then
+						-- Snacks may pass item as string or table
+						local filename = type(selected) == "table" and selected.text or selected
+						open_wiki_file(M.wikidir .. "/" .. filename)
+					end
+				end)
 			elseif picker_type == "fzf" then
 				picker.fzf_exec(orphan_items, {
 					prompt = "Orphan Files> ",
