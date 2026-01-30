@@ -82,6 +82,26 @@ vim.g.womwiki_disable_mappings ~
     Set to `true` before loading the plugin to disable default global
     keybindings. You can then define your own.
 
+                                                      *womwiki.config.inbox*
+inbox ~
+    Type: `table`
+    Configuration for the Quick Capture / Inbox system.
+
+    inbox.file ~
+        Type: `string`
+        Default: `"inbox.md"`
+        Path to inbox file, relative to wiki root.
+
+    inbox.format ~
+        Type: `string`
+        Default: `"- [ ] {{ datetime }} - {{ text }}"`
+        Format for captured entries. Variables: `{{ datetime }}`, `{{ text }}`
+
+    inbox.datetime_format ~
+        Type: `string`
+        Default: `"%Y-%m-%d %H:%M"`
+        Date/time format string (Lua os.date format).
+
 ==============================================================================
 4. COMMANDS                                              *womwiki-commands*
 
@@ -94,18 +114,17 @@ The main entry points are:
 womwiki.picker() ~
     Open the main womwiki menu. Access via |<leader>w| by default.
     
-    Menu options:
-    - Today/Close Daily - Open or close today's daily note
-    - Recent - Recently opened wiki files
-    - Calendar - Calendar view for daily notes
-    - Search - Live grep through wiki
-    - Create - Create a new wiki file
-    - Browse & Search > (submenu)
-    - Analyze > (submenu)
-    - Settings/Tools > (submenu)
+    Menu items support both number keys (1-8) and letter hotkeys:
 
-                                                         *womwiki.open_daily()*
-womwiki.open_daily({days_offset}) ~
+    1: [T]oday / Close [D]aily - Open or close today's daily note
+    2: [Q]uick Capture - Capture a thought to inbox
+    3: [R]ecent - Recently opened wiki files
+    4: [C]alendar - Calendar view for daily notes
+    5: [S]earch - Live grep through wiki
+    6: Cr[e]ate - Create a new wiki file
+    ───────────────
+    7: [A]nalyze > - Submenu for backlinks and graph
+    8: Too[l]s > - Submenu for settings and utilities
     Open a daily note. Creates from template if it doesn't exist.
     
     Parameters:
@@ -158,6 +177,54 @@ womwiki.edit_daily_template() ~
     Edit the daily note template. Creates `.templates/daily.md` in your wiki
     directory if it doesn't exist.
 
+                                                           *womwiki.capture()*
+womwiki.capture({text}, {include_location}) ~
+    Capture a thought to the inbox file. If {text} is provided, appends it
+    directly. Otherwise, prompts for input.
+    
+    Parameters:
+        {text}              (string|nil)   Text to capture. Prompts if nil.
+        {include_location}  (boolean|nil)  If true, appends a markdown link
+                                           to current file:line.
+    
+    The entry format is configurable via |womwiki.config.inbox|.
+    Default format: `- [ ] 2026-01-28 14:32 - Your thought here`
+    With location:  `- [ ] 2026-01-28 14:32 - text [file.lua:42](path#L42)`
+
+                                             *womwiki.capture_with_location()*
+womwiki.capture_with_location({text}) ~
+    Capture a thought with a link to the current file and line number.
+    The link format `[file:line](path#L42)` is clickable with `gf`/`<CR>`
+    and will jump directly to that line.
+    
+    Parameters:
+        {text}  (string|nil)  Text to capture. Prompts if nil.
+
+                                                    *womwiki.capture_visual()*
+womwiki.capture_visual() ~
+    Capture the current visual selection to the inbox file.
+    Always includes a location link to where the selection was made.
+
+                                                             *womwiki.inbox()*
+womwiki.inbox() ~
+    Open the inbox file for review and processing. Creates the inbox file
+    with a default header if it doesn't exist.
+
+                                                        *womwiki.tools_menu()*
+womwiki.tools_menu() ~
+    Open the Tools submenu with options:
+    
+    1: [E]dit Daily Template - Edit the daily note template
+    2: [C]leanup Empty Dailies - Find and delete unmodified daily notes  
+    3: [I]nbox - Open inbox file
+
+                                                      *womwiki.analyze_menu()*
+womwiki.analyze_menu() ~
+    Open the Analyze submenu with options:
+    
+    1: [B]acklinks - Search for files linking to current file
+    2: [G]raph View - Display wiki link graph
+
 ==============================================================================
 5. KEYBINDINGS                                        *womwiki-keybindings*
 
@@ -169,7 +236,11 @@ These are set globally when the plugin loads (unless disabled with
     <leader>w       Open womwiki menu            |womwiki.picker()|
     <leader>wb      Search backlinks             |womwiki.backlinks()|
     <leader>wg      Show graph view              |womwiki.show_graph()|
-
+    <leader>wq      Quick capture (prompts)      |womwiki.capture()|
+    <leader>wQ      Capture + location link      |womwiki.capture_with_location()|
+    <leader>wq      Capture visual selection     |womwiki.capture_visual()|
+                    (in visual mode, includes location)
+    <leader>wi      Open inbox                   |womwiki.inbox()|
 MARKDOWN BUFFER KEYBINDINGS ~
 
 These are set buffer-locally for markdown files via ftplugin:
@@ -289,7 +360,6 @@ Default template:
 
 Planned features for future releases:
 
-- Quick Capture: Instant capture to inbox without leaving current context
 - Multiple Templates: Meeting notes, ADRs, 1:1s, incident reports
 - Link Autocompletion: Fuzzy complete when typing `](`
 - Wikilinks: Support for `[[Page Name]]` syntax

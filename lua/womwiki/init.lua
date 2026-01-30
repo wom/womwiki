@@ -5,6 +5,11 @@ M.version = "0.0.1"
 M.config = {
 	path = os.getenv("HOME") .. "/src/wiki",
 	picker = nil, -- Optional: 'telescope', 'mini', 'fzf', 'snacks'
+	inbox = {
+		file = "inbox.md", -- relative to wiki root
+		format = "- [ ] {{ datetime }} - {{ text }}",
+		datetime_format = "%Y-%m-%d %H:%M",
+	},
 }
 
 local function update_paths()
@@ -715,14 +720,144 @@ function M.cleanup()
 	end, keymap_opts)
 end
 
+-- Helper: Get current buffer location as markdown link [file:line](path#Lline)
+local function get_location_link()
+	local bufname = vim.fn.expand("%:p")
+	if bufname == "" or vim.bo.buftype ~= "" then
+		return nil
+	end
+
+	local line = vim.fn.line(".")
+	local filename = vim.fn.expand("%:t")
+
+	-- Try to make path relative to wiki root, otherwise use absolute
+	local relative_path = bufname
+	if M.wikidir and bufname:find(M.wikidir, 1, true) == 1 then
+		relative_path = bufname:sub(#M.wikidir + 2) -- +2 for trailing slash
+	else
+		-- Try to make relative to cwd
+		local cwd = vim.fn.getcwd()
+		if bufname:find(cwd, 1, true) == 1 then
+			relative_path = bufname:sub(#cwd + 2)
+		end
+	end
+
+	return string.format("[%s:%d](%s#L%d)", filename, line, relative_path, line)
+end
+
+-- Quick Capture: append a thought to inbox without leaving current context
+function M.capture(text, include_location)
+	local inbox_path = M.wikidir .. "/" .. M.config.inbox.file
+	local expanded_path = vim.fn.expand(inbox_path)
+
+	-- If text provided directly, use it; otherwise prompt
+	if text and text ~= "" then
+		local datetime = os.date(M.config.inbox.datetime_format)
+		local entry = M.config.inbox.format:gsub("{{ datetime }}", datetime):gsub("{{ text }}", text)
+
+		-- Append location link if requested
+		if include_location then
+			local location = get_location_link()
+			if location then
+				entry = entry .. " " .. location
+			end
+		end
+
+		-- Append to inbox file
+		local file = io.open(expanded_path, "a")
+		if not file then
+			-- File doesn't exist, create with header
+			file = io.open(expanded_path, "w")
+			if not file then
+				vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
+				return
+			end
+			file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+		end
+		file:write(entry .. "\n")
+		file:close()
+		vim.notify("📥 Captured to inbox", vim.log.levels.INFO)
+	else
+		-- Prompt for input - capture location now before async prompt
+		local location = include_location and get_location_link() or nil
+		vim.ui.input({ prompt = "📥 Quick capture: " }, function(input)
+			if input and input ~= "" then
+				if location then
+					local datetime = os.date(M.config.inbox.datetime_format)
+					local entry = M.config.inbox.format:gsub("{{ datetime }}", datetime):gsub("{{ text }}", input)
+					entry = entry .. " " .. location
+
+					local file = io.open(expanded_path, "a")
+					if not file then
+						file = io.open(expanded_path, "w")
+						if not file then
+							vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
+							return
+						end
+						file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+					end
+					file:write(entry .. "\n")
+					file:close()
+					vim.notify("📥 Captured to inbox", vim.log.levels.INFO)
+				else
+					M.capture(input, false)
+				end
+			end
+		end)
+	end
+end
+
+-- Capture with current buffer location
+function M.capture_with_location(text)
+	M.capture(text, true)
+end
+
+-- Capture visual selection (always includes location)
+function M.capture_visual()
+	-- Get visual selection
+	local start_pos = vim.fn.getpos("'<")
+	local end_pos = vim.fn.getpos("'>")
+	local lines = vim.fn.getregion(start_pos, end_pos)
+	local text = table.concat(lines, " ")
+
+	if text and text ~= "" then
+		M.capture(text, true) -- Visual capture always includes location
+	else
+		vim.notify("No text selected", vim.log.levels.WARN)
+	end
+end
+
+-- Open inbox file for review/processing
+function M.inbox()
+	local inbox_path = M.wikidir .. "/" .. M.config.inbox.file
+	local expanded_path = vim.fn.expand(inbox_path)
+
+	-- Check if inbox exists, create if not
+	local file = io.open(expanded_path, "r")
+	if not file then
+		file = io.open(expanded_path, "w")
+		if not file then
+			vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
+			return
+		end
+		file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+		file:close()
+		vim.notify("Created new inbox file", vim.log.levels.INFO)
+	else
+		file:close()
+	end
+
+	open_wiki_file(inbox_path)
+end
+
 -- Submenu for Browse & Search operations
 function M.browse_and_search_menu()
 	M.show_menu({
-		{ "Browse All Notes", M.wiki },
-		{ "Browse Dailies", M.dailies },
-		{ "Search Dailies", M.dailies },
+		{ "Browse [A]ll Notes", "a", M.wiki },
+		{ "Browse [D]ailies", "d", M.dailies },
 		{
-			"Yesterday",
+			"[Y]esterday",
+			"y",
 			function()
 				M.open_daily(-1)
 			end,
@@ -733,17 +868,18 @@ end
 -- Submenu for Analysis operations
 function M.analyze_menu()
 	M.show_menu({
-		{ "Backlinks", M.backlinks },
-		{ "Graph View", M.show_graph },
+		{ "[B]acklinks", "b", M.backlinks },
+		{ "[G]raph View", "g", M.show_graph },
 	}, "Analyze", M.picker)
 end
 
--- Submenu for Settings/Tools
-function M.settings_menu()
+-- Submenu for Tools
+function M.tools_menu()
 	M.show_menu({
-		{ "Edit Daily Template", M.edit_daily_template },
-		{ "Cleanup Empty Dailies", M.cleanup },
-	}, "Settings/Tools", M.picker)
+		{ "[E]dit Daily Template", "e", M.edit_daily_template },
+		{ "[C]leanup Empty Dailies", "c", M.cleanup },
+		{ "[I]nbox", "i", M.inbox },
+	}, "Tools", M.picker)
 end
 
 -- Edit daily template
@@ -803,39 +939,57 @@ local function is_today_daily_open()
 end
 
 -- Main menu choices (dynamically generated)
+-- Format: { "Display [H]otkey", "h", function } or { "---" } for separator
 local function get_main_choices()
 	local choices = {}
 
 	-- Smart Today/Close Daily toggle
 	if is_today_daily_open() then
-		table.insert(choices, { "Close Daily", M.close_daily })
+		table.insert(choices, { "Close [D]aily", "d", M.close_daily })
 	else
 		table.insert(choices, {
-			"Today",
+			"[T]oday",
+			"t",
 			function()
 				M.open_daily()
 			end,
 		})
 	end
 
-	table.insert(choices, { "Recent", M.recent })
-	table.insert(choices, { "Calendar", M.calendar })
-	table.insert(choices, { "Search", M.search })
-	table.insert(choices, { "Create", M.create_file })
-	table.insert(choices, { "---", nil })
-	table.insert(choices, { "Browse & Search >", M.browse_and_search_menu })
-	table.insert(choices, { "Analyze >", M.analyze_menu })
-	table.insert(choices, { "Settings/Tools >", M.settings_menu })
+	table.insert(choices, { "[Q]uick Capture", "q", M.capture })
+	table.insert(choices, { "[R]ecent", "r", M.recent })
+	table.insert(choices, { "[C]alendar", "c", M.calendar })
+	table.insert(choices, { "[S]earch", "s", M.search })
+	table.insert(choices, { "Cr[e]ate", "e", M.create_file })
+	table.insert(choices, { "---" }) -- Separator (no hotkey, no action)
+	table.insert(choices, { "[A]nalyze >", "a", M.analyze_menu })
+	table.insert(choices, { "Too[l]s >", "l", M.tools_menu })
 
 	return choices
 end
 
 -- Generic menu display function
+-- Choices format: { "Display [H]otkey", "h", function } or { "---" } for separator
 function M.show_menu(choices, title, back_func)
 	title = title or "womwiki"
 	local options = { title }
+	local hotkey_map = {} -- maps hotkey letter to choice index
+	local number_map = {} -- maps display number to choice index
+	local display_num = 0
+
 	for i, choice in ipairs(choices) do
-		table.insert(options, string.format("%d: %s", i, choice[1]))
+		if choice[1] == "---" then
+			-- Separator - no number, no hotkey
+			table.insert(options, "   ───────────────")
+		else
+			display_num = display_num + 1
+			number_map[display_num] = i
+			table.insert(options, string.format("%d: %s", display_num, choice[1]))
+			-- Register hotkey if present
+			if choice[2] and type(choice[2]) == "string" then
+				hotkey_map[choice[2]:lower()] = i
+			end
+		end
 	end
 
 	local buf = vim.api.nvim_create_buf(false, true)
@@ -865,16 +1019,19 @@ function M.show_menu(choices, title, back_func)
 	})
 
 	local function execute_choice(index)
-		if index and choices[index] and choices[index][2] then
+		-- Choice format: { label, hotkey, func } - func is at index 3
+		if index and choices[index] and choices[index][3] then
 			vim.api.nvim_win_close(win, true)
-			choices[index][2]()
+			choices[index][3]()
 		end
 	end
 
 	local function handle_enter()
 		local line = vim.api.nvim_get_current_line()
-		local index = tonumber(line:match("^(%d):"))
-		execute_choice(index)
+		local num = tonumber(line:match("^(%d):"))
+		if num and number_map[num] then
+			execute_choice(number_map[num])
+		end
 	end
 
 	local function handle_back()
@@ -893,13 +1050,6 @@ function M.show_menu(choices, title, back_func)
 	-- q and Esc behave differently based on whether we have a back function
 	if back_func then
 		-- In submenu: Esc and 0 go back, q closes completely
-		vim.api.nvim_buf_set_keymap(buf, "n", "q", "", {
-			noremap = true,
-			silent = true,
-			callback = function()
-				vim.api.nvim_win_close(win, true)
-			end,
-		})
 		vim.api.nvim_buf_set_keymap(buf, "n", "<Esc>", "", {
 			noremap = true,
 			silent = true,
@@ -912,13 +1062,6 @@ function M.show_menu(choices, title, back_func)
 		})
 	else
 		-- In main menu: q and Esc close
-		vim.api.nvim_buf_set_keymap(buf, "n", "q", "", {
-			noremap = true,
-			silent = true,
-			callback = function()
-				vim.api.nvim_win_close(win, true)
-			end,
-		})
 		vim.api.nvim_buf_set_keymap(buf, "n", "<Esc>", "", {
 			noremap = true,
 			silent = true,
@@ -928,12 +1071,43 @@ function M.show_menu(choices, title, back_func)
 		})
 	end
 
-	for i = 1, math.min(#choices, 9) do
-		vim.api.nvim_buf_set_keymap(buf, "n", tostring(i), "", {
+	-- Always allow q to close
+	vim.api.nvim_buf_set_keymap(buf, "n", "q", "", {
+		noremap = true,
+		silent = true,
+		callback = function()
+			vim.api.nvim_win_close(win, true)
+		end,
+	})
+
+	-- Number hotkeys (1-9)
+	for num = 1, math.min(display_num, 9) do
+		vim.api.nvim_buf_set_keymap(buf, "n", tostring(num), "", {
 			noremap = true,
 			silent = true,
 			callback = function()
-				execute_choice(i)
+				if number_map[num] then
+					execute_choice(number_map[num])
+				end
+			end,
+		})
+	end
+
+	-- Letter hotkeys
+	for hotkey, index in pairs(hotkey_map) do
+		-- Bind both lowercase and uppercase
+		vim.api.nvim_buf_set_keymap(buf, "n", hotkey, "", {
+			noremap = true,
+			silent = true,
+			callback = function()
+				execute_choice(index)
+			end,
+		})
+		vim.api.nvim_buf_set_keymap(buf, "n", hotkey:upper(), "", {
+			noremap = true,
+			silent = true,
+			callback = function()
+				execute_choice(index)
 			end,
 		})
 	end

@@ -155,53 +155,82 @@ local function follow_markdown_link()
 				return
 			end
 
+			-- Parse line anchor (#L42) from URL if present
+			local file_path, line_anchor = url:match("^(.-)#L(%d+)$")
+			if not file_path then
+				file_path = url
+				line_anchor = nil
+			end
+
 			-- It's a file path - resolve relative to current file or wiki root
 			local current_file = vim.fn.expand("%:p:h")
 			local womwiki = require("womwiki")
 			local wiki_root = womwiki.wikidir
 
+			-- Helper to open file and jump to line
+			local function open_and_jump(path)
+				vim.cmd("edit " .. vim.fn.fnameescape(path))
+				vim.b.womwiki = true
+				if wiki_root then
+					vim.cmd("lcd " .. vim.fn.fnameescape(wiki_root))
+				end
+				-- Jump to line if anchor present
+				if line_anchor then
+					local target_line = tonumber(line_anchor)
+					if target_line then
+						vim.api.nvim_win_set_cursor(0, { target_line, 0 })
+						vim.cmd("normal! zz") -- Center the line
+					end
+				end
+			end
+
 			-- Try relative to current file first
-			local resolved_path = current_file .. "/" .. ensure_md_extension(url)
+			local resolved_path = current_file .. "/" .. ensure_md_extension(file_path)
 
 			-- Check if file exists relative to current file
 			local file = io.open(resolved_path, "r")
 			if file then
 				file:close()
-				vim.cmd("edit " .. vim.fn.fnameescape(resolved_path))
-				vim.b.womwiki = true
-				vim.cmd("lcd " .. vim.fn.fnameescape(wiki_root))
+				open_and_jump(resolved_path)
 				return
 			end
 
 			-- Try relative to wiki root
-			resolved_path = wiki_root .. "/" .. ensure_md_extension(url)
+			if wiki_root then
+				resolved_path = wiki_root .. "/" .. ensure_md_extension(file_path)
 
+				file = io.open(resolved_path, "r")
+				if file then
+					file:close()
+					open_and_jump(resolved_path)
+					return
+				end
+			end
+
+			-- Try as absolute path (for links to files outside wiki)
+			resolved_path = ensure_md_extension(file_path)
 			file = io.open(resolved_path, "r")
 			if file then
 				file:close()
-				vim.cmd("edit " .. vim.fn.fnameescape(resolved_path))
-				vim.b.womwiki = true
-				vim.cmd("lcd " .. vim.fn.fnameescape(wiki_root))
+				open_and_jump(resolved_path)
 				return
 			end
 
-			-- File doesn't exist - offer to create it
+			-- File doesn't exist - offer to create it (only for wiki-like paths)
 			vim.ui.input({
-				prompt = 'File does not exist. Create "' .. url .. '"? (y/N): ',
+				prompt = 'File does not exist. Create "' .. file_path .. '"? (y/N): ',
 			}, function(confirm)
 				if confirm and confirm:lower() == "y" then
 					-- Create in same directory as current file
-					local new_path = current_file .. "/" .. ensure_md_extension(url)
+					local new_path = current_file .. "/" .. ensure_md_extension(file_path)
 
 					-- Create file with basic header
 					local new_file = io.open(new_path, "w")
 					if new_file then
-						local title = url:gsub("%.md$", ""):gsub("[_-]", " ")
+						local title = file_path:gsub("%.md$", ""):gsub("[_-]", " ")
 						new_file:write("# " .. title .. "\n\n")
 						new_file:close()
-						vim.cmd("edit " .. vim.fn.fnameescape(new_path))
-						vim.b.womwiki = true
-						vim.cmd("lcd " .. vim.fn.fnameescape(wiki_root))
+						open_and_jump(new_path)
 					end
 				end
 			end)
