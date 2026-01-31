@@ -730,19 +730,8 @@ local function get_location_link()
 	local line = vim.fn.line(".")
 	local filename = vim.fn.expand("%:t")
 
-	-- Try to make path relative to wiki root, otherwise use absolute
-	local relative_path = bufname
-	if M.wikidir and bufname:find(M.wikidir, 1, true) == 1 then
-		relative_path = bufname:sub(#M.wikidir + 2) -- +2 for trailing slash
-	else
-		-- Try to make relative to cwd
-		local cwd = vim.fn.getcwd()
-		if bufname:find(cwd, 1, true) == 1 then
-			relative_path = bufname:sub(#cwd + 2)
-		end
-	end
-
-	return string.format("[%s:%d](%s#L%d)", filename, line, relative_path, line)
+	-- Always use absolute path so links work from anywhere
+	return string.format("[%s:%d](%s#L%d)", filename, line, bufname, line)
 end
 
 -- Quick Capture: append a thought to inbox without leaving current context
@@ -780,28 +769,27 @@ function M.capture(text, include_location)
 	else
 		-- Prompt for input - capture location now before async prompt
 		local location = include_location and get_location_link() or nil
-		vim.ui.input({ prompt = "📥 Quick capture: " }, function(input)
+		local prompt = location and "📥 Capture (+ location): " or "📥 Quick capture: "
+		vim.ui.input({ prompt = prompt }, function(input)
 			if input and input ~= "" then
+				local datetime = os.date(M.config.inbox.datetime_format)
+				local entry = M.config.inbox.format:gsub("{{ datetime }}", datetime):gsub("{{ text }}", input)
 				if location then
-					local datetime = os.date(M.config.inbox.datetime_format)
-					local entry = M.config.inbox.format:gsub("{{ datetime }}", datetime):gsub("{{ text }}", input)
 					entry = entry .. " " .. location
-
-					local file = io.open(expanded_path, "a")
-					if not file then
-						file = io.open(expanded_path, "w")
-						if not file then
-							vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
-							return
-						end
-						file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
-					end
-					file:write(entry .. "\n")
-					file:close()
-					vim.notify("📥 Captured to inbox", vim.log.levels.INFO)
-				else
-					M.capture(input, false)
 				end
+
+				local file = io.open(expanded_path, "a")
+				if not file then
+					file = io.open(expanded_path, "w")
+					if not file then
+						vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
+						return
+					end
+					file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+				end
+				file:write(entry .. "\n")
+				file:close()
+				vim.notify("📥 Captured to inbox" .. (location and " (with location)" or ""), vim.log.levels.INFO)
 			end
 		end)
 	end
