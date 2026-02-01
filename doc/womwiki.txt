@@ -15,8 +15,9 @@ CONTENTS                                                   *womwiki-contents*
     6. Calendar .............................. |womwiki-calendar|
     7. Graph View ............................ |womwiki-graph|
     8. Backlinks ............................. |womwiki-backlinks|
-    9. Templates ............................. |womwiki-templates|
-   10. Roadmap ............................... |womwiki-roadmap|
+    9. Link Completion ....................... |womwiki-completion|
+   10. Templates ............................. |womwiki-templates|
+   11. Roadmap ............................... |womwiki-roadmap|
 
 ==============================================================================
 1. INTRODUCTION                                        *womwiki-introduction*
@@ -101,6 +102,26 @@ inbox ~
         Type: `string`
         Default: `"%Y-%m-%d %H:%M"`
         Date/time format string (Lua os.date format).
+
+                                                  *womwiki.config.completion*
+completion ~
+    Type: `table`
+    Configuration for link autocompletion.
+
+    completion.enabled ~
+        Type: `boolean`
+        Default: `true`
+        Enable/disable link autocompletion.
+
+    completion.include_headings ~
+        Type: `boolean`
+        Default: `true`
+        When completing, also offer headings within files (e.g., `file.md#heading`).
+
+    completion.max_results ~
+        Type: `number`
+        Default: `50`
+        Maximum number of completion results to show.
 
 ==============================================================================
 4. COMMANDS                                              *womwiki-commands*
@@ -331,7 +352,49 @@ The search looks for markdown links in these formats:
 Results appear in your configured picker with file preview.
 
 ==============================================================================
-9. TEMPLATES                                            *womwiki-templates*
+9. LINK COMPLETION                                  *womwiki-completion*
+
+womwiki provides autocompletion for markdown links. When typing `[text](`,
+you'll get fuzzy-matched suggestions for wiki files.
+
+FEATURES ~
+
+- Completes file paths relative to wiki root
+- Shows file title (from first H1 heading) in completion menu
+- Type `#` after a filename to complete headings within that file
+- Works with nvim-cmp (recommended) or built-in completion
+
+SETUP WITH NVIM-CMP ~
+
+If you use nvim-cmp, add the womwiki source to your configuration:
+>lua
+    require("cmp").setup({
+      sources = {
+        { name = "womwiki" },
+        -- your other sources...
+      },
+    })
+<
+The source auto-registers when you open a markdown file, but adding it
+explicitly ensures it appears in your preferred order.
+
+BUILT-IN COMPLETION ~
+
+If you don't use nvim-cmp, the built-in omnifunc is set automatically
+in markdown files. Trigger completion with:
+- `<C-x><C-o>` (standard omni-completion)
+- Or configure your completion plugin to use omnifunc
+
+HEADING COMPLETION ~
+
+After typing a filename, add `#` to complete headings:
+>markdown
+    [link text](myfile.md#    <- triggers heading completion
+<
+Headings are converted to GitHub-style slugs (lowercase, hyphens).
+
+==============================================================================
+10. TEMPLATES                                            *womwiki-templates*
 
 Daily notes are created from a template with variable substitution.
 
@@ -356,12 +419,11 @@ Default template:
     ## Log
 <
 ==============================================================================
-10. ROADMAP                                              *womwiki-roadmap*
+11. ROADMAP                                              *womwiki-roadmap*
 
 Planned features for future releases:
 
 - Multiple Templates: Meeting notes, ADRs, 1:1s, incident reports
-- Link Autocompletion: Fuzzy complete when typing `](`
 - Wikilinks: Support for `[[Page Name]]` syntax
 - Tags & Frontmatter: `#tag` support and YAML frontmatter parsing
 - Rename & Refactor: Rename files with automatic backlink updates

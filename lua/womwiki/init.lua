@@ -10,6 +10,11 @@ M.config = {
 		format = "- [ ] {{ datetime }} - {{ text }}",
 		datetime_format = "%Y-%m-%d %H:%M",
 	},
+	completion = {
+		enabled = true,
+		include_headings = true,
+		max_results = 50,
+	},
 }
 
 local function update_paths()
@@ -812,6 +817,174 @@ function M.capture_visual()
 		M.capture(text, true) -- Visual capture always includes location
 	else
 		vim.notify("No text selected", vim.log.levels.WARN)
+	end
+end
+
+--------------------------------------------------------------------------------
+-- Link Autocompletion
+--------------------------------------------------------------------------------
+
+-- Get all wiki files with their titles (used by both cmp and omnifunc)
+function M.get_wiki_files()
+	if not M.wikidir then
+		return {}
+	end
+
+	local files = {}
+
+	local function scan_dir(dir, prefix)
+		local h = vim.uv.fs_scandir(dir)
+		if not h then
+			return
+		end
+
+		while true do
+			local name, type = vim.uv.fs_scandir_next(h)
+			if not name then
+				break
+			end
+
+			local full_path = dir .. "/" .. name
+			local rel_path = prefix ~= "" and (prefix .. "/" .. name) or name
+
+			if type == "directory" and not name:match("^%.") then
+				scan_dir(full_path, rel_path)
+			elseif type == "file" and name:match("%.md$") then
+				local title = nil
+				local f = io.open(full_path, "r")
+				if f then
+					for line in f:lines() do
+						local h1 = line:match("^#%s+(.+)$")
+						if h1 then
+							title = h1
+							break
+						end
+					end
+					f:close()
+				end
+
+				table.insert(files, {
+					path = rel_path,
+					title = title or rel_path:gsub("%.md$", ""),
+					full_path = full_path,
+				})
+			end
+		end
+	end
+
+	scan_dir(M.wikidir, "")
+	return files
+end
+
+-- Get headings from a file
+function M.get_file_headings(filepath)
+	local headings = {}
+	local f = io.open(filepath, "r")
+	if not f then
+		return headings
+	end
+
+	for line in f:lines() do
+		local level, text = line:match("^(#+)%s+(.+)$")
+		if level and text then
+			local slug = text:lower()
+				:gsub("[^%w%s-]", "")
+				:gsub("%s+", "-")
+				:gsub("%-+", "-")
+				:gsub("^%-", "")
+				:gsub("%-$", "")
+			table.insert(headings, {
+				text = text,
+				slug = slug,
+				level = #level,
+			})
+		end
+	end
+
+	f:close()
+	return headings
+end
+
+-- Omnifunc for link completion (built-in, no dependencies)
+function M.link_complete(findstart, base)
+	if findstart == 1 then
+		-- Find start of completion
+		local line = vim.fn.getline(".")
+		local col = vim.fn.col(".") - 1
+
+		-- Look for ]( pattern
+		local link_pos = line:sub(1, col):find("%]%([^)]*$")
+		if link_pos then
+			return link_pos + 1 -- Position after ](
+		end
+		return -3 -- No completion
+	else
+		-- Return matches
+		local items = {}
+		local files = M.get_wiki_files()
+
+		-- Check if completing heading (contains #)
+		local file_part, heading_part = base:match("^(.-)#(.*)$")
+
+		if file_part and M.config.completion.include_headings then
+			-- Complete headings
+			local target_file = nil
+			for _, file in ipairs(files) do
+				if file.path == file_part or file.path == file_part .. ".md" then
+					target_file = file.full_path
+					break
+				end
+			end
+
+			if target_file then
+				local headings = M.get_file_headings(target_file)
+				for _, heading in ipairs(headings) do
+					local word = file_part .. "#" .. heading.slug
+					if word:lower():find(base:lower(), 1, true) or heading.text:lower():find((heading_part or ""):lower(), 1, true) then
+						table.insert(items, {
+							word = word,
+							menu = heading.text,
+							kind = "H" .. heading.level,
+						})
+					end
+				end
+			end
+		else
+			-- Complete files
+			for _, file in ipairs(files) do
+				if file.path:lower():find(base:lower(), 1, true) or file.title:lower():find(base:lower(), 1, true) then
+					table.insert(items, {
+						word = file.path,
+						menu = file.title,
+						kind = "F",
+					})
+					if #items >= M.config.completion.max_results then
+						break
+					end
+				end
+			end
+		end
+
+		return items
+	end
+end
+
+-- Setup completion for current buffer
+function M.setup_completion()
+	if not M.config.completion.enabled then
+		return
+	end
+
+	-- Set omnifunc for built-in completion
+	vim.bo.omnifunc = "v:lua.require'womwiki'.link_complete"
+
+	-- Try to register with nvim-cmp if available
+	local has_cmp, cmp = pcall(require, "cmp")
+	if has_cmp then
+		local has_source, cmp_womwiki = pcall(require, "cmp_womwiki")
+		if has_source then
+			cmp.register_source("womwiki", cmp_womwiki.new())
+		end
 	end
 end
 

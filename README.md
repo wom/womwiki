@@ -120,3 +120,56 @@ Markdown buffer mappings:
 - `<leader>mc`: Toggle checkbox
 - `gf`: Follow markdown link (enhanced)
 - `<CR>`: Follow markdown link
+
+## Completion
+
+womwiki provides link completion when typing `](` in markdown files. It supports both **nvim-cmp** and **blink.cmp**.
+
+### blink.cmp Setup
+
+```lua
+{
+  'saghen/blink.cmp',
+  opts = {
+    sources = {
+      default = { 'lsp', 'path', 'snippets', 'buffer', 'womwiki' },
+      providers = {
+        womwiki = {
+          name = 'womwiki',
+          module = 'blink_womwiki',
+          score_offset = 10, -- Boost wiki completions
+          enabled = function()
+            return vim.bo.filetype == 'markdown'
+          end,
+        },
+      },
+    },
+  },
+}
+```
+
+### nvim-cmp Setup
+
+The source is automatically registered when nvim-cmp is detected. To manually configure:
+
+```lua
+{
+  'hrsh7th/nvim-cmp',
+  config = function()
+    local cmp = require('cmp')
+    cmp.setup({
+      sources = cmp.config.sources({
+        { name = 'womwiki' },
+        -- ... other sources
+      }),
+    })
+  end,
+}
+```
+
+### Completion Features
+
+- **File completion**: Type `[link text](` to get wiki file suggestions
+- **Heading completion**: Type `[link](file.md#` to complete headings within that file
+- Fuzzy matching on both filename and title
+

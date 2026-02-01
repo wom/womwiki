@@ -3,6 +3,7 @@ womwiki	womwiki.txt	/*womwiki*
 womwiki-backlinks	womwiki.txt	/*womwiki-backlinks*
 womwiki-calendar	womwiki.txt	/*womwiki-calendar*
 womwiki-commands	womwiki.txt	/*womwiki-commands*
+womwiki-completion	womwiki.txt	/*womwiki-completion*
 womwiki-configuration	womwiki.txt	/*womwiki-configuration*
 womwiki-contents	womwiki.txt	/*womwiki-contents*
 womwiki-graph	womwiki.txt	/*womwiki-graph*
@@ -19,6 +20,7 @@ womwiki.capture_visual()	womwiki.txt	/*womwiki.capture_visual()*
 womwiki.capture_with_location()	womwiki.txt	/*womwiki.capture_with_location()*
 womwiki.cleanup()	womwiki.txt	/*womwiki.cleanup()*
 womwiki.close_daily()	womwiki.txt	/*womwiki.close_daily()*
+womwiki.config.completion	womwiki.txt	/*womwiki.config.completion*
 womwiki.config.inbox	womwiki.txt	/*womwiki.config.inbox*
 womwiki.config.path	womwiki.txt	/*womwiki.config.path*
 womwiki.config.picker	womwiki.txt	/*womwiki.config.picker*

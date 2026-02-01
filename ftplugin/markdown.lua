@@ -265,3 +265,9 @@ vim.keymap.set("n", "<CR>", follow_markdown_link, {
 	desc = "Follow markdown link",
 	silent = true,
 })
+
+-- Setup link autocompletion
+local has_womwiki, womwiki = pcall(require, "womwiki")
+if has_womwiki then
+	womwiki.setup_completion()
+end
