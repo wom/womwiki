@@ -1164,10 +1164,10 @@ function M.show_menu(choices, title, back_func)
 	end
 
 	local height = #options
-	local win_width = math.min(max_width + 4, vim.api.nvim_get_option("columns"))
-	local win_height = math.min(height, vim.api.nvim_get_option("lines"))
-	local row = math.ceil((vim.api.nvim_get_option("lines") - win_height) / 2)
-	local col = math.ceil((vim.api.nvim_get_option("columns") - win_width) / 2)
+	local win_width = math.min(max_width + 4, vim.o.columns)
+	local win_height = math.min(height, vim.o.lines)
+	local row = math.ceil((vim.o.lines - win_height) / 2)
+	local col = math.ceil((vim.o.columns - win_width) / 2)
 
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "editor",
