@@ -1,7 +1,7 @@
 *womwiki.txt*  Personal wiki for Neovim                          *womwiki*
 
 Author:   wom
-Version:  0.0.1
+Version:  0.0.2
 License:  MIT
 
 ==============================================================================
@@ -198,6 +198,16 @@ womwiki.edit_daily_template() ~
     Edit the daily note template. Creates `.templates/daily.md` in your wiki
     directory if it doesn't exist.
 
+                                                        *womwiki.daily_prev()*
+womwiki.daily_prev() ~
+    Navigate to the previous existing daily note. Does not create new files.
+    Only works when in a daily note buffer.
+
+                                                        *womwiki.daily_next()*
+womwiki.daily_next() ~
+    Navigate to the next existing daily note. Does not create new files.
+    Only works when in a daily note buffer.
+
                                                            *womwiki.capture()*
 womwiki.capture({text}, {include_location}) ~
     Capture a thought to the inbox file. If {text} is provided, appends it
@@ -277,6 +287,15 @@ These are set buffer-locally for markdown files via ftplugin:
 
     <leader>mc      Toggle markdown checkbox. Works in visual mode.
                     Cycles: no checkbox → `- [ ]` → `- [x]` → no checkbox
+
+DAILY NOTE KEYBINDINGS ~
+
+These are set buffer-locally when viewing a daily note:
+
+    [w              Go to previous existing daily note
+    ]w              Go to next existing daily note
+    <CR>            On the nav line: jump to Prev/Next based on cursor
+                    position. Elsewhere: normal Enter behavior.
 
 ==============================================================================
 6. CALENDAR                                              *womwiki-calendar*

@@ -104,6 +104,7 @@ This will:
 ### Default Template
 
 ```markdown
+<!-- [« Prev](prev) | [Next »](next) -->
 # {{ date }}
 ## Standup
 * Vibe:
@@ -112,6 +113,10 @@ This will:
 * Blocking:
 ## Log
 ```
+
+The navigation line at the top allows jumping between daily notes:
+- Position cursor on `Prev` or `Next` and press `Enter`
+- Or use `[w` / `]w` keymaps to navigate
 
 **Note:** Keep your template in your wiki directory (`<wikidir>/.templates/daily.md`) to make your wiki self-contained and portable.
 

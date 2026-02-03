@@ -26,6 +26,8 @@ womwiki.config.path	womwiki.txt	/*womwiki.config.path*
 womwiki.config.picker	womwiki.txt	/*womwiki.config.picker*
 womwiki.create_file()	womwiki.txt	/*womwiki.create_file()*
 womwiki.dailies()	womwiki.txt	/*womwiki.dailies()*
+womwiki.daily_next()	womwiki.txt	/*womwiki.daily_next()*
+womwiki.daily_prev()	womwiki.txt	/*womwiki.daily_prev()*
 womwiki.edit_daily_template()	womwiki.txt	/*womwiki.edit_daily_template()*
 womwiki.inbox()	womwiki.txt	/*womwiki.inbox()*
 womwiki.picker()	womwiki.txt	/*womwiki.picker()*
