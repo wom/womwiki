@@ -43,6 +43,8 @@ M.close_daily = daily.close
 M.list_files = daily.list_files
 M.edit_daily_template = daily.edit_template
 M.cleanup = daily.cleanup
+M.daily_prev = daily.prev
+M.daily_next = daily.next
 
 --------------------------------------------------------------------------------
 -- Calendar (re-export from calendar module)

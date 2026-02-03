@@ -6,7 +6,8 @@ local config = require("womwiki.config")
 local M = {}
 
 -- Built-in default template for daily notes
-M.DEFAULT_TEMPLATE = [[# {{ date }}
+M.DEFAULT_TEMPLATE = [[<!-- [« Prev](prev) | [Next »](next) -->
+# {{ date }}
 ## Standup
 * Vibe:
 * ToDone:
@@ -75,6 +76,123 @@ function M.list_files()
 	return files
 end
 
+-- Get the date from current buffer's filename (assumes YYYY-MM-DD.md format)
+local function get_current_daily_date()
+	local filename = vim.fn.expand("%:t")
+	local year, month, day = filename:match("(%d%d%d%d)-(%d%d)-(%d%d)%.md$")
+	if year and month and day then
+		return string.format("%04d-%02d-%02d", tonumber(year), tonumber(month), tonumber(day))
+	end
+	return nil
+end
+
+-- Get adjacent daily note (prev or next existing one)
+-- direction: -1 for prev, 1 for next
+function M.get_adjacent_daily(direction)
+	local current_date = get_current_daily_date()
+	if not current_date then
+		vim.notify("Not in a daily note", vim.log.levels.WARN)
+		return nil
+	end
+
+	-- Get all daily files and sort them
+	local files = M.list_files()
+	local dates = {}
+	for _, f in ipairs(files) do
+		local date = f:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		if date then
+			table.insert(dates, date)
+		end
+	end
+	table.sort(dates)
+
+	-- Find current date's position
+	local current_idx = nil
+	for i, d in ipairs(dates) do
+		if d == current_date then
+			current_idx = i
+			break
+		end
+	end
+
+	if not current_idx then
+		return nil
+	end
+
+	-- Get adjacent
+	local target_idx = current_idx + direction
+	if target_idx < 1 or target_idx > #dates then
+		return nil
+	end
+
+	return dates[target_idx]
+end
+
+-- Navigate to previous daily note
+function M.prev()
+	local target_date = M.get_adjacent_daily(-1)
+	if target_date then
+		local filepath = config.dailydir .. "/" .. target_date .. ".md"
+		vim.cmd("edit " .. vim.fn.fnameescape(filepath))
+		M.setup_daily_buffer()
+	else
+		vim.notify("No previous daily note", vim.log.levels.INFO)
+	end
+end
+
+-- Navigate to next daily note
+function M.next()
+	local target_date = M.get_adjacent_daily(1)
+	if target_date then
+		local filepath = config.dailydir .. "/" .. target_date .. ".md"
+		vim.cmd("edit " .. vim.fn.fnameescape(filepath))
+		M.setup_daily_buffer()
+	else
+		vim.notify("No next daily note", vim.log.levels.INFO)
+	end
+end
+
+-- Handle navigation when pressing Enter on nav line
+function M.handle_nav_line()
+	local line = vim.api.nvim_get_current_line()
+	local col = vim.fn.col(".")
+
+	-- Check if we're on the nav line (contains Prev and Next)
+	if not (line:match("Prev") and line:match("Next")) then
+		-- Not on nav line, do normal Enter
+		return vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "n", false)
+	end
+
+	-- Find positions of Prev and Next in the line
+	local prev_start, prev_end = line:find("Prev")
+	local next_start, next_end = line:find("Next")
+
+	if prev_start and col >= prev_start and col <= prev_end then
+		M.prev()
+	elseif next_start and col >= next_start and col <= next_end then
+		M.next()
+	else
+		-- Cursor not on Prev or Next, default to prev if before middle, next if after
+		local mid = #line / 2
+		if col < mid then
+			M.prev()
+		else
+			M.next()
+		end
+	end
+end
+
+-- Setup buffer-local keymaps for daily notes
+function M.setup_daily_buffer()
+	vim.b.womwiki = true
+	vim.cmd("lcd " .. vim.fn.fnameescape(config.wikidir))
+
+	local opts = { buffer = true, silent = true }
+	vim.keymap.set("n", "[w", M.prev, vim.tbl_extend("force", opts, { desc = "Previous daily note" }))
+	vim.keymap.set("n", "]w", M.next, vim.tbl_extend("force", opts, { desc = "Next daily note" }))
+	vim.keymap.set("n", "<CR>", M.handle_nav_line, vim.tbl_extend("force", opts, { desc = "Daily nav or normal Enter" }))
+end
+
 -- Open or create a daily file with a specified offset in days
 function M.open(days_offset)
 	days_offset = days_offset or 0
@@ -104,8 +222,7 @@ function M.open(days_offset)
 
 	-- Open the file in the editor with 20% height or minimum 10 lines
 	vim.cmd("aboveleft " .. math.max(10, math.floor(vim.o.lines * 0.2)) .. "split " .. filename)
-	vim.b.womwiki = true -- Tag the buffer as a womwiki buffer
-	vim.cmd("lcd " .. vim.fn.fnameescape(config.wikidir)) -- Set wikidir just for that buffer
+	M.setup_daily_buffer()
 end
 
 -- Close daily note buffer
