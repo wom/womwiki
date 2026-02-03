@@ -11,28 +11,37 @@ M.Kind = {
 
 --- Parse line to detect markdown link context
 --- @param line string Line content before cursor
---- @return string|nil typed Text typed after `](`
+--- @return string|nil typed Text typed after trigger
 --- @return boolean in_link Whether cursor is inside a link
+--- @return string|nil link_type "markdown" or "wikilink"
 function M.parse_link_context(line)
+	-- Check for wikilink first: [[
+	local wikilink_start = line:match("%[%[[^%]]*$")
+	if wikilink_start then
+		-- Get what's typed after [[
+		local typed = line:match("%[%[([^%]|]*)$") or ""
+		return typed, true, "wikilink"
+	end
+
 	-- Check if we're inside a markdown link: [text](
 	local link_start = line:match("%]%([^)]*$")
 	if not link_start then
-		return nil, false
+		return nil, false, nil
 	end
 
 	-- Get what's typed after ](
 	local typed = line:match("%]%(([^)]*)$") or ""
-	return typed, true
+	return typed, true, "markdown"
 end
 
 --- Build completion items for wiki files and headings
 --- @param line string Line content before cursor
---- @return table result { items = {...}, is_incomplete = false }
+--- @return table result { items = {...}, is_incomplete = false, link_type = "markdown"|"wikilink"|nil }
 function M.get_items(line)
-	local typed, in_link = M.parse_link_context(line)
+	local typed, in_link, link_type = M.parse_link_context(line)
 
 	if not in_link then
-		return { items = {}, is_incomplete = false }
+		return { items = {}, is_incomplete = false, link_type = nil }
 	end
 
 	local womwiki = require("womwiki")
@@ -69,12 +78,25 @@ function M.get_items(line)
 	else
 		-- Complete file paths
 		for _, file in ipairs(files) do
+			-- For wikilinks, use just the filename without extension
+			-- For markdown links, use the path with extension
+			local label = file.path
+			local insert_text = file.path
+			if link_type == "wikilink" then
+				-- Strip .md extension for wikilinks if present
+				insert_text = file.path:gsub("%.md$", "")
+				label = insert_text
+			end
+
 			table.insert(items, {
-				label = file.path,
+				label = label,
 				kind = M.Kind.File,
 				detail = file.title,
 				sortText = file.path,
 				filterText = file.path .. " " .. file.title,
+				insertText = insert_text,
+				-- Add closing ]] for wikilinks
+				insertTextSuffix = link_type == "wikilink" and "]]" or nil,
 			})
 			if #items >= womwiki.config.completion.max_results then
 				break
@@ -82,13 +104,13 @@ function M.get_items(line)
 		end
 	end
 
-	return { items = items, is_incomplete = false }
+	return { items = items, is_incomplete = false, link_type = link_type }
 end
 
 --- Get trigger characters for completion
 --- @return string[]
 function M.get_trigger_characters()
-	return { "(" }
+	return { "(", "[" }
 end
 
 --- Check if completion should be available

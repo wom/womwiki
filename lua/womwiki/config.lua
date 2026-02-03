@@ -19,6 +19,12 @@ M.config = {
 		include_headings = true,
 		max_results = 50,
 	},
+	wikilinks = {
+		enabled = true, -- Support [[wikilink]] syntax
+		spaces_to = "-", -- Convert spaces in link names: "-", "_", or nil
+		confirm_create = true, -- Always confirm before creating new files
+	},
+	default_link_style = "markdown", -- "markdown" ([text](path.md)) or "wikilink" ([[page]])
 }
 
 -- Resolved paths (set by update_paths)

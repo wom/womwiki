@@ -8,8 +8,8 @@ source.new = function()
 end
 
 source.get_keyword_pattern = function()
-	-- Match text after ](
-	return [[\%(\]\(\)\@<=\f*]]
+	-- Match text after ]( for markdown links or after [[ for wikilinks
+	return [[\%(\]\(\)\@<=\f*\|\%(\[\[\)\@<=\f*]]
 end
 
 source.get_trigger_characters = function()
@@ -25,7 +25,18 @@ source.complete = function(self, params, callback)
 	local completion = require("womwiki.completion")
 	local result = completion.get_items(line)
 
-	callback({ items = result.items, isIncomplete = result.is_incomplete })
+	-- For wikilinks, add ]] suffix to insertText
+	local items = {}
+	for _, item in ipairs(result.items) do
+		local new_item = vim.deepcopy(item)
+		if result.link_type == "wikilink" and item.insertTextSuffix then
+			-- Append ]] when completing wikilinks
+			new_item.insertText = (item.insertText or item.label) .. item.insertTextSuffix
+		end
+		table.insert(items, new_item)
+	end
+
+	callback({ items = items, isIncomplete = result.is_incomplete })
 end
 
 return source

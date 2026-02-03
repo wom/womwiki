@@ -26,8 +26,19 @@ function source:get_completions(ctx, callback)
 	local completion = require("womwiki.completion")
 	local result = completion.get_items(line_before_cursor)
 
+	-- For wikilinks, add ]] suffix to insertText
+	local items = {}
+	for _, item in ipairs(result.items) do
+		local new_item = vim.deepcopy(item)
+		if result.link_type == "wikilink" and item.insertTextSuffix then
+			-- Append ]] when completing wikilinks
+			new_item.insertText = (item.insertText or item.label) .. item.insertTextSuffix
+		end
+		table.insert(items, new_item)
+	end
+
 	callback({
-		items = result.items,
+		items = items,
 		is_incomplete_forward = result.is_incomplete,
 		is_incomplete_backward = result.is_incomplete,
 	})

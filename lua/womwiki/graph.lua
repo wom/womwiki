@@ -15,13 +15,27 @@ local function get_links_from_file(file_path)
 	end
 
 	for line in file:lines() do
-		-- Match [text](link) pattern
+		-- Match [text](link) pattern (standard markdown)
 		for _, link in line:gmatch("%[([^%]]+)%]%(([^%)]+)%)") do
 			-- Skip URLs, only process local links
 			if not link:match("^https?://") then
 				-- Remove .md extension if present for consistency
 				local clean_link = link:gsub("%.md$", "")
 				table.insert(links, clean_link)
+			end
+		end
+
+		-- Match [[link]] or [[link|display]] pattern (wikilinks)
+		if config.config.wikilinks and config.config.wikilinks.enabled then
+			for link_content in line:gmatch("%[%[([^%]]+)%]%]") do
+				-- Parse [[link|display]] format - extract just the link part
+				local link_target = link_content:match("^([^|]+)") or link_content
+				-- Convert spaces based on config
+				local spaces_to = config.config.wikilinks.spaces_to
+				if spaces_to then
+					link_target = link_target:gsub(" ", spaces_to)
+				end
+				table.insert(links, link_target)
 			end
 		end
 	end
@@ -115,6 +129,12 @@ function M.backlinks()
 		"\\]\\(" .. current_file .. "\\.md\\)", -- [text](filename.md)
 	}
 
+	-- Add wikilink patterns if enabled
+	if config.config.wikilinks and config.config.wikilinks.enabled then
+		table.insert(search_patterns, "\\[\\[" .. current_file .. "\\]\\]") -- [[filename]]
+		table.insert(search_patterns, "\\[\\[" .. current_file .. "\\|[^\\]]*\\]\\]") -- [[filename|display]]
+	end
+
 	if picker_type == "telescope" then
 		picker.grep_string({
 			search = table.concat(search_patterns, "|"),
@@ -136,6 +156,8 @@ function M.backlinks()
 		picker.grep({
 			search = table.concat(search_patterns, "|"),
 			cwd = config.wikidir,
+			no_esc = true, -- Don't escape regex pattern (allows | alternation)
+			file_icons = false, -- Disable icons to simplify path parsing
 			fzf_opts = {
 				["--header"] = "󰌷 Backlinks to: " .. current_file .. ".md",
 				["--preview"] = "bat --style=numbers --color=always --highlight-line {2} {1} 2>/dev/null || cat {1}",
@@ -145,8 +167,9 @@ function M.backlinks()
 				["default"] = function(selected)
 					if selected and selected[1] then
 						-- Extract filename from "filename:line:content" format
-						local file = selected[1]:match("^([^:]+)")
+						local file = selected[1]:match("^%s*([^:]+)")
 						if file then
+							file = vim.trim(file)
 							utils.open_wiki_file(config.wikidir .. "/" .. file)
 						end
 					end
