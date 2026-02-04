@@ -15,9 +15,12 @@ CONTENTS                                                   *womwiki-contents*
     6. Calendar .............................. |womwiki-calendar|
     7. Graph View ............................ |womwiki-graph|
     8. Backlinks ............................. |womwiki-backlinks|
-    9. Link Completion ....................... |womwiki-completion|
-   10. Templates ............................. |womwiki-templates|
-   11. Roadmap ............................... |womwiki-roadmap|
+    9. Tags .................................. |womwiki-tags|
+   10. Wikilinks ............................. |womwiki-wikilinks|
+   11. Link Completion ....................... |womwiki-completion|
+   12. Templates ............................. |womwiki-templates|
+   13. Highlight Groups ...................... |womwiki-highlights|
+   14. Roadmap ............................... |womwiki-roadmap|
 
 ==============================================================================
 1. INTRODUCTION                                        *womwiki-introduction*
@@ -31,8 +34,11 @@ note-taking workflow integrated into the editor.  Whatever `wom` found useful.
 - Multi-picker support (telescope, mini.pick, fzf-lua, snacks)
 - Wiki link graph visualization
 - Backlinks search
+- Tags and frontmatter support (#tags and YAML)
+- Wikilinks ([[Page Name]] syntax)
 - Markdown editing helpers (checkboxes, link creation)
 - Follow markdown links with create-on-demand
+- Link autocompletion for files, headings, and tags
 
 ==============================================================================
 2. SETUP                                                    *womwiki-setup*
@@ -123,6 +129,57 @@ completion ~
         Default: `50`
         Maximum number of completion results to show.
 
+                                                  *womwiki.config.wikilinks*
+wikilinks ~
+    Type: `table`
+    Configuration for [[wikilink]] syntax support.
+
+    wikilinks.enabled ~
+        Type: `boolean`
+        Default: `true`
+        Enable wikilink syntax support (`[[Page Name]]`).
+
+    wikilinks.spaces_to ~
+        Type: `string|nil`
+        Default: `"-"`
+        Convert spaces in wikilink names: `"-"`, `"_"`, or `nil` (no change).
+        Example: `[[My Page]]` → `my-page.md` when set to `"-"`.
+
+    wikilinks.confirm_create ~
+        Type: `boolean`
+        Default: `true`
+        Confirm before creating new files when following wikilinks.
+
+                                                      *womwiki.config.tags*
+tags ~
+    Type: `table`
+    Configuration for tag parsing and indexing.
+
+    tags.enabled ~
+        Type: `boolean`
+        Default: `true`
+        Enable tag support (inline #tags and frontmatter).
+
+    tags.inline_pattern ~
+        Type: `string`
+        Default: `"#([%w_-]+)"`
+        Lua pattern for matching inline tags in documents.
+
+    tags.use_frontmatter ~
+        Type: `boolean`
+        Default: `true`
+        Parse YAML frontmatter for tags.
+
+                                            *womwiki.config.default_link_style*
+default_link_style ~
+    Type: `string`
+    Default: `"markdown"`
+    Values: `"markdown"`, `"wikilink"`
+
+    Style for newly created links with |<leader>ml|:
+    - `"markdown"`: Creates `[text](file.md)` links
+    - `"wikilink"`: Creates `[[file]]` links
+
 ==============================================================================
 4. COMMANDS                                              *womwiki-commands*
 
@@ -198,6 +255,40 @@ womwiki.edit_daily_template() ~
     Edit the daily note template. Creates `.templates/daily.md` in your wiki
     directory if it doesn't exist.
 
+                                              *womwiki.modernize_daily_headers()*
+womwiki.modernize_daily_headers() ~
+    Update daily notes to use the modern wikilink navigation format.
+    
+    Old format: `<!-- [« Prev](prev) | [Next »](next) -->`
+    New format: `<!-- [[« Prev]] · [[Next »]] -->`
+    
+    Scans all daily notes, shows a preview of files to update (with counts
+    of files already modern and files skipped due to ambiguous format),
+    and requires confirmation before making changes.
+
+                                                        *womwiki.list_tags()*
+womwiki.list_tags() ~
+    Browse all tags in the wiki with file counts. Uses your configured
+    picker to display tags. Selecting a tag opens |womwiki.filter_by_tag()|.
+    See |womwiki-tags| for details.
+
+                                                     *womwiki.filter_by_tag()*
+womwiki.filter_by_tag({tag}) ~
+    Show all files containing the specified tag. If {tag} is nil, prompts
+    for tag selection first.
+    
+    Parameters:
+        {tag}  (string|nil)  Tag to filter by. Prompts if nil.
+
+                                                          *womwiki.add_tag()*
+womwiki.add_tag({tag}) ~
+    Add a tag to the current file. If the file has YAML frontmatter,
+    adds to the `tags:` array. Otherwise, appends an inline tag to the
+    first heading line.
+    
+    Parameters:
+        {tag}  (string|nil)  Tag to add (without #). Prompts if nil.
+
                                                         *womwiki.daily_prev()*
 womwiki.daily_prev() ~
     Navigate to the previous existing daily note. Does not create new files.
@@ -246,8 +337,9 @@ womwiki.tools_menu() ~
     Open the Tools submenu with options:
     
     1: [E]dit Daily Template - Edit the daily note template
-    2: [C]leanup Empty Dailies - Find and delete unmodified daily notes  
-    3: [I]nbox - Open inbox file
+    2: [C]leanup Empty Dailies - Find and delete unmodified daily notes
+    3: [M]odernize Headers - Update daily notes to wikilink nav format
+    4: [I]nbox - Open inbox file
 
                                                       *womwiki.analyze_menu()*
 womwiki.analyze_menu() ~
@@ -255,6 +347,15 @@ womwiki.analyze_menu() ~
     
     1: [B]acklinks - Search for files linking to current file
     2: [G]raph View - Display wiki link graph
+    3: [T]ags > - Open tags submenu
+
+                                                        *womwiki.tags_menu()*
+womwiki.tags_menu() ~
+    Open the Tags submenu with options:
+    
+    1: [L]ist All Tags - Browse tags with file counts
+    2: [F]ilter by Tag - Select tag, show matching files
+    3: [A]dd Tag to File - Add tag to current file
 
 ==============================================================================
 5. KEYBINDINGS                                        *womwiki-keybindings*
@@ -294,8 +395,13 @@ These are set buffer-locally when viewing a daily note:
 
     [w              Go to previous existing daily note
     ]w              Go to next existing daily note
-    <CR>            On the nav line: jump to Prev/Next based on cursor
-                    position. Elsewhere: normal Enter behavior.
+    <CR>            Follow link under cursor (including nav line wikilinks)
+
+The nav line at the top of daily notes uses wikilink syntax:
+`<!-- [[« Prev]] · [[Next »]] -->`
+
+Pressing <CR> on `[[« Prev]]` or `[[Next »]]` navigates to adjacent daily
+notes. This uses the same link-following logic as other wikilinks.
 
 ==============================================================================
 6. CALENDAR                                              *womwiki-calendar*
@@ -364,24 +470,123 @@ Backlinks shows all files that contain a link to the current file.
 
 Open with: |womwiki.backlinks()| or |<leader>wb|.
 
-The search looks for markdown links in these formats:
-- `[text](filename)`
-- `[text](filename.md)`
+The search looks for links in these formats:
+- Markdown links: `[text](filename)` or `[text](filename.md)`
+- Wikilinks: `[[filename]]` or `[[filename|display]]`
 
 Results appear in your configured picker with file preview.
 
 ==============================================================================
-9. LINK COMPLETION                                  *womwiki-completion*
+9. TAGS                                                    *womwiki-tags*
 
-womwiki provides autocompletion for markdown links. When typing `[text](`,
-you'll get fuzzy-matched suggestions for wiki files.
+womwiki supports tags via YAML frontmatter and inline #tags in documents.
+
+TAG FORMATS ~
+
+Frontmatter (inline array):
+>yaml
+    ---
+    tags: [project, vim, notes]
+    ---
+<
+Frontmatter (multi-line list):
+>yaml
+    ---
+    tags:
+      - project
+      - vim
+    ---
+<
+Inline tags:
+>markdown
+    # My Document #project #vim
+    
+    This is about #neovim configuration.
+<
+Inline tags are detected anywhere in the document except inside code blocks.
+The pattern is configurable via |womwiki.config.tags|.
+
+COMMANDS ~
+
+|womwiki.list_tags()|      Browse all tags with file counts
+|womwiki.filter_by_tag()|  Show files with a specific tag
+|womwiki.add_tag()|        Add a tag to the current file
+
+TAGS MENU ~
+
+Access via: Main Menu > Analyze > Tags
+
+    1: [L]ist All Tags - Browse tags with counts in picker
+    2: [F]ilter by Tag - Select tag, show matching files
+    3: [A]dd Tag to File - Add tag to current file
+
+TAG COMPLETION ~
+
+When typing `#` in a markdown file, autocompletion suggests existing tags
+from your wiki. This helps maintain consistent tag naming.
+
+CACHING ~
+
+Tags are cached in memory with a 60-second TTL. The cache rebuilds
+automatically when stale. Adding a tag via |womwiki.add_tag()| invalidates
+the cache immediately.
+
+==============================================================================
+10. WIKILINKS                                          *womwiki-wikilinks*
+
+womwiki supports `[[wikilink]]` syntax alongside standard markdown links.
+Wikilinks are faster to type and popular in tools like Obsidian.
+
+SYNTAX ~
+
+Basic:       `[[Page Name]]`
+With alias:  `[[Page Name|display text]]`
+
+RENDERED OUTPUT ~
+
+`[[Page Name]]` displays as "Page Name" and links to `page-name.md`
+(with spaces converted based on |womwiki.config.wikilinks.spaces_to|).
+
+RESOLUTION ~
+
+When following a wikilink, womwiki searches in this order:
+1. Exact match at wiki root
+2. Case-insensitive match at wiki root
+3. Exact match in subdirectories
+4. Fuzzy case-insensitive match in subdirectories
+5. Offer to create the file (if |wikilinks.confirm_create| is true)
+
+SPECIAL WIKILINKS ~
+
+Daily notes use special wikilinks for navigation:
+- `[[« Prev]]` - Navigate to previous daily note
+- `[[Next »]]` - Navigate to next daily note
+
+These are handled specially and don't create files.
+
+CONFIGURATION ~
+
+See |womwiki.config.wikilinks| for configuration options.
+See |womwiki.config.default_link_style| to set wikilinks as default.
+
+==============================================================================
+11. LINK COMPLETION                                  *womwiki-completion*
+
+womwiki provides autocompletion for markdown links, wikilinks, and tags.
+
+TRIGGERS ~
+
+- `](` - After typing markdown link text, completes file paths
+- `[[` - After opening a wikilink, completes file names
+- `#`  - Completes existing tags from your wiki
 
 FEATURES ~
 
 - Completes file paths relative to wiki root
 - Shows file title (from first H1 heading) in completion menu
 - Type `#` after a filename to complete headings within that file
-- Works with nvim-cmp (recommended) or built-in completion
+- Tag completion suggests existing tags for consistency
+- Works with nvim-cmp, blink.cmp (recommended), or built-in completion
 
 SETUP WITH NVIM-CMP ~
 
@@ -413,7 +618,7 @@ After typing a filename, add `#` to complete headings:
 Headings are converted to GitHub-style slugs (lowercase, hyphens).
 
 ==============================================================================
-10. TEMPLATES                                            *womwiki-templates*
+12. TEMPLATES                                            *womwiki-templates*
 
 Daily notes are created from a template with variable substitution.
 
@@ -429,6 +634,7 @@ Edit template: Use |womwiki.edit_daily_template()| or Settings/Tools menu.
 
 Default template:
 >markdown
+    <!-- [[« Prev]] · [[Next »]] -->
     # {{ date }}
     ## Standup
     * Vibe:
@@ -437,22 +643,44 @@ Default template:
     * Blocking:
     ## Log
 <
+The nav line at the top uses wikilinks for daily note navigation.
+See |womwiki-wikilinks| for details.
+
 ==============================================================================
-11. ROADMAP                                              *womwiki-roadmap*
+13. HIGHLIGHT GROUPS                                  *womwiki-highlights*
+
+womwiki defines the following highlight groups:
+
+    WomwikiTag          Inline #tags (default: links to Identifier)
+    WomwikiGraphHeader  Graph view title (links to Title)
+    WomwikiGraphStats   Statistics numbers (links to Number)
+    WomwikiGraphHub     Well-connected files (links to String)
+    WomwikiGraphOrphan  Disconnected files (links to Comment)
+    WomwikiGraphCurrent Current file indicator (links to Special)
+    WomwikiGraphKey     Keyboard shortcut hints (links to Keyword)
+    WomwikiGraphBorder  Float window border (links to FloatBorder)
+
+Customize by overriding in your config:
+>lua
+    vim.api.nvim_set_hl(0, "WomwikiTag", { fg = "#e0af68", bold = true })
+<
+==============================================================================
+14. ROADMAP                                              *womwiki-roadmap*
 
 Planned features for future releases:
 
 - Multiple Templates: Meeting notes, ADRs, 1:1s, incident reports
-- Wikilinks: Support for `[[Page Name]]` syntax
-- Tags & Frontmatter: `#tag` support and YAML frontmatter parsing
 - Rename & Refactor: Rename files with automatic backlink updates
 - Project Notes: Link notes to git repositories
-- Heading Search: Navigate by document structure
+- Heading Search: Navigate by document structure across all files
 - Code Block Runner: Execute fenced code blocks
 - Export: HTML/PDF export via Pandoc
 
-See the full roadmap at:
-https://github.com/wom/womwiki/docs/feature-roadmap.md
+Recently completed:
+- Wikilinks: Support for `[[Page Name]]` syntax ✓
+- Tags & Frontmatter: `#tag` support and YAML frontmatter parsing ✓
+- Tag completion: Auto-complete existing tags ✓
+- Link autocompletion: Complete file paths and headings ✓
 
 ==============================================================================
 vim:tw=78:ts=8:ft=help:norl:
