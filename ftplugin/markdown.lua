@@ -456,3 +456,9 @@ local has_womwiki, womwiki = pcall(require, "womwiki")
 if has_womwiki then
 	womwiki.setup_completion()
 end
+
+-- Setup tag highlighting
+if has_womwiki and womwiki.config.tags and womwiki.config.tags.enabled then
+	-- Highlight inline #tags (but not in code blocks or URLs)
+	vim.fn.matchadd("WomwikiTag", "\\v(^|\\s)#[a-zA-Z0-9_-]+")
+end

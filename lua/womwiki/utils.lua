@@ -14,6 +14,7 @@ function M.setup_graph_highlights()
 	vim.api.nvim_set_hl(0, "WomwikiGraphCurrent", { link = "Special", default = true })
 	vim.api.nvim_set_hl(0, "WomwikiGraphKey", { link = "Keyword", default = true })
 	vim.api.nvim_set_hl(0, "WomwikiGraphBorder", { link = "FloatBorder", default = true })
+	vim.api.nvim_set_hl(0, "WomwikiTag", { link = "Identifier", default = true })
 end
 
 -- Detect available picker and return picker type + module

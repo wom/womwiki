@@ -13,8 +13,15 @@ M.Kind = {
 --- @param line string Line content before cursor
 --- @return string|nil typed Text typed after trigger
 --- @return boolean in_link Whether cursor is inside a link
---- @return string|nil link_type "markdown" or "wikilink"
+--- @return string|nil link_type "markdown" or "wikilink" or "tag"
 function M.parse_link_context(line)
+	-- Check for tag completion first: #
+	local tag_start = line:match("#[%w_-]*$")
+	if tag_start then
+		local typed = line:match("#([%w_-]*)$") or ""
+		return typed, true, "tag"
+	end
+
 	-- Check for wikilink first: [[
 	local wikilink_start = line:match("%[%[[^%]]*$")
 	if wikilink_start then
@@ -36,7 +43,7 @@ end
 
 --- Build completion items for wiki files and headings
 --- @param line string Line content before cursor
---- @return table result { items = {...}, is_incomplete = false, link_type = "markdown"|"wikilink"|nil }
+--- @return table result { items = {...}, is_incomplete = false, link_type = "markdown"|"wikilink"|"tag"|nil }
 function M.get_items(line)
 	local typed, in_link, link_type = M.parse_link_context(line)
 
@@ -46,6 +53,28 @@ function M.get_items(line)
 
 	local womwiki = require("womwiki")
 	local items = {}
+
+	-- Handle tag completion
+	if link_type == "tag" then
+		local all_tags = womwiki.get_all_tags()
+		for _, tag in ipairs(all_tags) do
+			if tag:lower():find(typed:lower(), 1, true) or typed == "" then
+				table.insert(items, {
+					label = "#" .. tag,
+					kind = M.Kind.Reference,
+					detail = "tag",
+					sortText = tag,
+					filterText = "#" .. tag .. " " .. tag,
+					insertText = tag, -- Just the tag name, # already typed
+				})
+				if #items >= womwiki.config.completion.max_results then
+					break
+				end
+			end
+		end
+		return { items = items, is_incomplete = false, link_type = link_type }
+	end
+
 	local files = womwiki.get_wiki_files()
 
 	-- Check if user is typing a heading reference (contains #)
@@ -110,7 +139,7 @@ end
 --- Get trigger characters for completion
 --- @return string[]
 function M.get_trigger_characters()
-	return { "(", "[" }
+	return { "(", "[", "#" }
 end
 
 --- Check if completion should be available

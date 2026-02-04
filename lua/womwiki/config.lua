@@ -24,6 +24,11 @@ M.config = {
 		spaces_to = "-", -- Convert spaces in link names: "-", "_", or nil
 		confirm_create = true, -- Always confirm before creating new files
 	},
+	tags = {
+		enabled = true, -- Support #tags and frontmatter tags
+		inline_pattern = "#([%w_-]+)", -- Lua pattern for inline tags
+		use_frontmatter = true, -- Parse YAML frontmatter for tags
+	},
 	default_link_style = "markdown", -- "markdown" ([text](path.md)) or "wikilink" ([[page]])
 }
 

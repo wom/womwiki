@@ -15,6 +15,7 @@ local capture = require("womwiki.capture")
 local files = require("womwiki.files")
 local menu = require("womwiki.menu")
 local graph = require("womwiki.graph")
+local tags = require("womwiki.tags")
 
 --------------------------------------------------------------------------------
 -- Configuration (re-export from config module)
@@ -81,6 +82,16 @@ M.get_file_headings = files.get_file_headings
 
 M.backlinks = graph.backlinks
 M.show_graph = graph.show
+
+--------------------------------------------------------------------------------
+-- Tags (re-export from tags module)
+--------------------------------------------------------------------------------
+
+M.list_tags = tags.list_tags
+M.filter_by_tag = tags.filter_by_tag
+M.add_tag = tags.add_tag
+M.get_file_tags = tags.get_file_tags
+M.get_all_tags = tags.get_all_tags
 
 --------------------------------------------------------------------------------
 -- Completion (link autocompletion)
@@ -208,7 +219,17 @@ function M.analyze_menu()
 	M.show_menu({
 		{ "[B]acklinks", "b", M.backlinks },
 		{ "[G]raph View", "g", M.show_graph },
+		{ "[T]ags", "t", M.tags_menu },
 	}, "Analyze", M.picker)
+end
+
+-- Tags submenu
+function M.tags_menu()
+	M.show_menu({
+		{ "[L]ist All Tags", "l", M.list_tags },
+		{ "[F]ilter by Tag", "f", M.filter_by_tag },
+		{ "[A]dd Tag to File", "a", M.add_tag },
+	}, "Tags", M.analyze_menu)
 end
 
 -- Tools submenu
