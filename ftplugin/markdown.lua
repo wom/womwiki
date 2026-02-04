@@ -290,6 +290,15 @@ local function follow_markdown_link()
 					link_target = link_content
 				end
 
+				-- Handle special navigation links for daily notes
+				if link_target == "« Prev" then
+					require("womwiki.daily").prev()
+					return
+				elseif link_target == "Next »" then
+					require("womwiki.daily").next()
+					return
+				end
+
 				local filename = wikilink_to_filename(link_target)
 
 				-- Try to find exact match (case-sensitive)

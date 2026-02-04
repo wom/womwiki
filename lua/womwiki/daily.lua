@@ -6,7 +6,7 @@ local config = require("womwiki.config")
 local M = {}
 
 -- Built-in default template for daily notes
-M.DEFAULT_TEMPLATE = [[<!-- [« Prev](prev) | [Next »](next) -->
+M.DEFAULT_TEMPLATE = [=[<!-- [[« Prev]] · [[Next »]] -->
 # {{ date }}
 ## Standup
 * Vibe:
@@ -14,7 +14,7 @@ M.DEFAULT_TEMPLATE = [[<!-- [« Prev](prev) | [Next »](next) -->
 * ToDo:
 * Blocking:
 ## Log
-]]
+]=]
 
 -- Get daily template path with fallback logic
 -- Priority: 1. Wiki template, 2. Config template, 3. Built-in default
@@ -152,36 +152,6 @@ function M.next()
 	end
 end
 
--- Handle navigation when pressing Enter on nav line
-function M.handle_nav_line()
-	local line = vim.api.nvim_get_current_line()
-	local col = vim.fn.col(".")
-
-	-- Check if we're on the nav line (contains Prev and Next)
-	if not (line:match("Prev") and line:match("Next")) then
-		-- Not on nav line, do normal Enter
-		return vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "n", false)
-	end
-
-	-- Find positions of Prev and Next in the line
-	local prev_start, prev_end = line:find("Prev")
-	local next_start, next_end = line:find("Next")
-
-	if prev_start and col >= prev_start and col <= prev_end then
-		M.prev()
-	elseif next_start and col >= next_start and col <= next_end then
-		M.next()
-	else
-		-- Cursor not on Prev or Next, default to prev if before middle, next if after
-		local mid = #line / 2
-		if col < mid then
-			M.prev()
-		else
-			M.next()
-		end
-	end
-end
-
 -- Setup buffer-local keymaps for daily notes
 function M.setup_daily_buffer()
 	vim.b.womwiki = true
@@ -190,7 +160,7 @@ function M.setup_daily_buffer()
 	local opts = { buffer = true, silent = true }
 	vim.keymap.set("n", "[w", M.prev, vim.tbl_extend("force", opts, { desc = "Previous daily note" }))
 	vim.keymap.set("n", "]w", M.next, vim.tbl_extend("force", opts, { desc = "Next daily note" }))
-	vim.keymap.set("n", "<CR>", M.handle_nav_line, vim.tbl_extend("force", opts, { desc = "Daily nav or normal Enter" }))
+	-- Note: <CR> link following is handled by ftplugin/markdown.lua
 end
 
 -- Open or create a daily file with a specified offset in days
@@ -372,6 +342,138 @@ function M.cleanup()
 
 		vim.api.nvim_win_close(win, true)
 		vim.notify("Deleted " .. deleted_count .. " unmodified daily note(s)", vim.log.levels.INFO)
+	end, keymap_opts)
+end
+
+-- Patterns for nav line detection
+local NAV_PATTERNS = {
+	-- New wikilink format: <!-- [[« Prev]] · [[Next »]] -->
+	new = "^<!%-%- %[%[« Prev%]%] · %[%[Next »%]%] %-%->",
+	-- Old markdown link format: <!-- [« Prev](prev) | [Next »](next) -->
+	old = "^<!%-%- %[« Prev%]%(prev%) | %[Next »%]%(next%) %-%->",
+}
+
+-- New nav line content
+local NEW_NAV_LINE = "<!-- [[« Prev]] · [[Next »]] -->"
+
+-- Modernize daily note headers to use new nav format
+function M.modernize_headers()
+	local files = M.list_files()
+	local to_update = {}
+	local skipped = 0
+
+	for _, filename in ipairs(files) do
+		local date = filename:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		if date then
+			local filepath = config.dailydir .. "/" .. filename
+			local file = io.open(filepath, "r")
+			if file then
+				local first_line = file:read("*l")
+				local rest = file:read("*a")
+				file:close()
+
+				if first_line then
+					if first_line:match(NAV_PATTERNS.new) then
+						-- Already has new format, skip
+					elseif first_line:match(NAV_PATTERNS.old) then
+						-- Old format, needs update
+						table.insert(to_update, {
+							name = filename,
+							path = filepath,
+							action = "replace",
+							rest = rest,
+						})
+					elseif first_line:match("^# " .. date .. "$") then
+						-- Missing nav line, date heading on line 1
+						table.insert(to_update, {
+							name = filename,
+							path = filepath,
+							action = "prepend",
+							first_line = first_line,
+							rest = rest,
+						})
+					else
+						-- Ambiguous format, skip
+						skipped = skipped + 1
+					end
+				end
+			end
+		end
+	end
+
+	if #to_update == 0 then
+		local msg = "All daily notes already have modern headers!"
+		if skipped > 0 then
+			msg = msg .. " (" .. skipped .. " skipped due to ambiguous format)"
+		end
+		vim.notify(msg, vim.log.levels.INFO)
+		return
+	end
+
+	-- Show preview of files to be updated
+	local preview_lines = { "Found " .. #to_update .. " daily note(s) to modernize:", "" }
+	for _, file in ipairs(to_update) do
+		local action_label = file.action == "replace" and "update" or "add nav"
+		table.insert(preview_lines, "  " .. file.name .. " (" .. action_label .. ")")
+	end
+	if skipped > 0 then
+		table.insert(preview_lines, "")
+		table.insert(preview_lines, "  (" .. skipped .. " files skipped - ambiguous format)")
+	end
+	table.insert(preview_lines, "")
+	table.insert(preview_lines, "Press 'm' to modernize, 'q' to cancel")
+
+	local buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, preview_lines)
+	vim.bo[buf].modifiable = false
+	vim.bo[buf].buftype = "nofile"
+
+	local width = 55
+	local height = math.min(#preview_lines, 20)
+	local win = vim.api.nvim_open_win(buf, true, {
+		relative = "editor",
+		width = width,
+		height = height,
+		col = math.ceil((vim.o.columns - width) / 2),
+		row = math.ceil((vim.o.lines - height) / 2),
+		style = "minimal",
+		border = "rounded",
+	})
+
+	local keymap_opts = { buffer = buf, nowait = true, silent = true }
+
+	local function close_cancel()
+		vim.api.nvim_win_close(win, true)
+		vim.notify("Modernize cancelled", vim.log.levels.INFO)
+	end
+
+	vim.keymap.set("n", "q", close_cancel, keymap_opts)
+	vim.keymap.set("n", "<Esc>", close_cancel, keymap_opts)
+
+	vim.keymap.set("n", "m", function()
+		local updated_count = 0
+		for _, file in ipairs(to_update) do
+			local new_content
+			if file.action == "replace" then
+				-- Replace old nav line with new
+				new_content = NEW_NAV_LINE .. "\n" .. (file.rest or "")
+			else
+				-- Prepend nav line before existing content
+				new_content = NEW_NAV_LINE .. "\n" .. file.first_line .. "\n" .. (file.rest or "")
+			end
+
+			local f = io.open(file.path, "w")
+			if f then
+				f:write(new_content)
+				f:close()
+				updated_count = updated_count + 1
+			else
+				vim.notify("Failed to write: " .. file.name, vim.log.levels.WARN)
+			end
+		end
+
+		vim.api.nvim_win_close(win, true)
+		vim.notify("Modernized " .. updated_count .. " daily note(s)", vim.log.levels.INFO)
 	end, keymap_opts)
 end
 

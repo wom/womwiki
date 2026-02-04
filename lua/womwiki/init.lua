@@ -43,6 +43,7 @@ M.close_daily = daily.close
 M.list_files = daily.list_files
 M.edit_daily_template = daily.edit_template
 M.cleanup = daily.cleanup
+M.modernize_daily_headers = daily.modernize_headers
 M.daily_prev = daily.prev
 M.daily_next = daily.next
 
@@ -215,6 +216,7 @@ function M.tools_menu()
 	M.show_menu({
 		{ "[E]dit Daily Template", "e", M.edit_daily_template },
 		{ "[C]leanup Empty Dailies", "c", M.cleanup },
+		{ "[M]odernize Headers", "m", M.modernize_daily_headers },
 		{ "[I]nbox", "i", M.inbox },
 	}, "Tools", M.picker)
 end
