@@ -197,6 +197,7 @@ local function get_main_choices()
 	table.insert(choices, { "[R]ecent", "r", M.recent })
 	table.insert(choices, { "[C]alendar", "c", M.calendar })
 	table.insert(choices, { "[S]earch", "s", M.search })
+	table.insert(choices, { "[I]nbox", "i", M.inbox })
 	table.insert(choices, { "Cr[e]ate", "e", M.create_file })
 	table.insert(choices, { "---" })
 	table.insert(choices, { "[A]nalyze >", "a", M.analyze_menu })
@@ -238,7 +239,6 @@ function M.tools_menu()
 		{ "[E]dit Daily Template", "e", M.edit_daily_template },
 		{ "[C]leanup Empty Dailies", "c", M.cleanup },
 		{ "[M]odernize Headers", "m", M.modernize_daily_headers },
-		{ "[I]nbox", "i", M.inbox },
 	}, "Tools", M.picker)
 end
 

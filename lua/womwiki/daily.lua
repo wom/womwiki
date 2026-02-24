@@ -152,6 +152,94 @@ function M.next()
 	end
 end
 
+-- Find the most recent existing daily before a given date
+function M.get_most_recent_previous_daily(reference_date)
+	local files = M.list_files()
+	local dates = {}
+	for _, f in ipairs(files) do
+		local date = f:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		if date then
+			table.insert(dates, date)
+		end
+	end
+	table.sort(dates)
+
+	-- Find the most recent date before reference_date
+	local target_date = nil
+	for _, date in ipairs(dates) do
+		if date < reference_date then
+			target_date = date  -- Keep updating to get the most recent one before reference_date
+		else
+			break  -- Since sorted, we won't find any more before reference_date
+		end
+	end
+
+	return target_date
+end
+
+-- Extract incomplete todos from a daily note file
+function M.extract_incomplete_todos(filepath)
+	local todos = {}
+	local file = io.open(filepath, "r")
+	if not file then
+		return todos
+	end
+
+	for line in file:lines() do
+		-- Match lines with [ ] (unchecked) or [-] (blocked/in progress)
+		if line:match("^%s*%-(%s+)%[%s%]") or line:match("^%s*%-(%s+)%[%-]") then
+			table.insert(todos, line)
+		end
+	end
+
+	file:close()
+	return todos
+end
+
+-- Mark forwarded todos in a file (change [ ] or [-] to [>])
+function M.mark_todos_forwarded(filepath, todo_lines_to_mark)
+	local file = io.open(filepath, "r")
+	if not file then
+		return false
+	end
+
+	-- Read all lines
+	local lines = {}
+	for line in file:lines() do
+		table.insert(lines, line)
+	end
+	file:close()
+
+	-- Create a set of todos to mark (strip leading/trailing whitespace for comparison)
+	local todos_to_mark = {}
+	for _, todo in ipairs(todo_lines_to_mark) do
+		-- Normalize: strip leading/trailing whitespace, keep only the content
+		local normalized = todo:gsub("^%s+", ""):gsub("%s+$", "")
+		todos_to_mark[normalized] = true
+	end
+
+	-- Update lines
+	for i, line in ipairs(lines) do
+		local normalized = line:gsub("^%s+", ""):gsub("%s+$", "")
+		if todos_to_mark[normalized] then
+			-- Replace the checkbox with [>], preserving original spacing
+			lines[i] = line:gsub("%[%s%]", "[>]"):gsub("%[%-]", "[>]")
+		end
+	end
+
+	-- Write back
+	file = io.open(filepath, "w")
+	if not file then
+		return false
+	end
+	for _, line in ipairs(lines) do
+		file:write(line .. "\n")
+	end
+	file:close()
+
+	return true
+end
+
 -- Setup buffer-local keymaps for daily notes
 function M.setup_daily_buffer()
 	vim.b.womwiki = true
@@ -174,9 +262,11 @@ function M.open(days_offset)
 
 	-- Check if the file exists
 	local file = io.open(expanded_filename, "r")
+	local is_new_file = false
 	if file then
 		file:close()
 	else
+		is_new_file = true
 		-- File doesn't exist, create it with the template content
 		local template_content = M.get_template_content()
 		local content = template_content:gsub("{{ date }}", date)
@@ -188,6 +278,28 @@ function M.open(days_offset)
 		end
 		file:write(content)
 		file:close()
+
+		-- If this is a new file, check for incomplete todos from most recent previous daily
+		local prev_date = M.get_most_recent_previous_daily(date)
+		if prev_date then
+			local prev_filepath = config.dailydir .. "/" .. prev_date .. ".md"
+			local todos = M.extract_incomplete_todos(prev_filepath)
+
+			if #todos > 0 then
+				-- Append rollover section to new file
+				file = io.open(expanded_filename, "a")
+				if file then
+					file:write("\n## Rolled over from [[" .. prev_date .. "]]\n\n")
+					for _, todo in ipairs(todos) do
+						file:write(todo .. "\n")
+					end
+					file:close()
+
+					-- Mark todos as forwarded in previous file
+					M.mark_todos_forwarded(prev_filepath, todos)
+				end
+			end
+		end
 	end
 
 	-- Open the file in the editor with 20% height or minimum 10 lines
