@@ -3,8 +3,6 @@
 
 local M = {}
 
-M.version = "0.0.1"
-
 -- Default configuration
 M.config = {
 	path = os.getenv("HOME") .. "/src/wiki",
