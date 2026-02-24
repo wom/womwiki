@@ -302,8 +302,17 @@ function M.open(days_offset)
 		end
 	end
 
-	-- Open the file in the editor with 20% height or minimum 10 lines
-	vim.cmd("aboveleft " .. math.max(10, math.floor(vim.o.lines * 0.2)) .. "split " .. filename)
+	-- Open the file in the editor
+	-- If actively editing a file, use split; otherwise use full screen
+	local should_split = vim.fn.bufname() ~= "" and vim.bo.buftype == "" and vim.fn.line("$") > 1
+
+	if should_split then
+		-- Split view: 20% height or minimum 10 lines
+		vim.cmd("aboveleft " .. math.max(10, math.floor(vim.o.lines * 0.2)) .. "split " .. filename)
+	else
+		-- Full screen: we're on splash/empty buffer, open in current window
+		vim.cmd("edit " .. filename)
+	end
 	M.setup_daily_buffer()
 end
 
