@@ -16,10 +16,15 @@ M.Kind = {
 --- @return string|nil link_type "markdown" or "wikilink" or "tag"
 function M.parse_link_context(line)
 	-- Check for tag completion first: #
+	-- Skip markdown headings: # at line start (after optional whitespace) or preceded by another #
 	local tag_start = line:match("#[%w_-]*$")
 	if tag_start then
-		local typed = line:match("#([%w_-]*)$") or ""
-		return typed, true, "tag"
+		local before_tag = line:sub(1, #line - #tag_start)
+		local is_heading = before_tag:match("^%s*#*$")
+		if not is_heading then
+			local typed = line:match("#([%w_-]*)$") or ""
+			return typed, true, "tag"
+		end
 	end
 
 	-- Check for wikilink first: [[

@@ -6,6 +6,18 @@ local utils = require("womwiki.utils")
 
 local M = {}
 
+-- File list cache
+M.cache = {
+	files = {},
+	last_scan = 0,
+	ttl = 300, -- seconds, overridden by config.completion.cache_ttl
+}
+
+--- Invalidate the wiki files cache (call after file changes)
+function M.invalidate_cache()
+	M.cache.last_scan = 0
+end
+
 -- Open picker to find files in the wiki directory
 function M.wiki()
 	local picker_type, picker = utils.get_picker()
@@ -212,9 +224,16 @@ function M.search()
 end
 
 -- Get all wiki files with their titles (used by completion)
+-- Results are cached with a TTL to avoid rescanning on every keystroke
 function M.get_wiki_files()
 	if not config.wikidir then
 		return {}
+	end
+
+	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
+	local now = os.time()
+	if now - M.cache.last_scan < ttl and #M.cache.files > 0 then
+		return M.cache.files
 	end
 
 	local files = {}
@@ -260,6 +279,8 @@ function M.get_wiki_files()
 	end
 
 	scan_dir(config.wikidir, "")
+	M.cache.files = files
+	M.cache.last_scan = now
 	return files
 end
 

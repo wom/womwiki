@@ -33,6 +33,20 @@ function M.setup(opts)
 	M.dailydir = config.dailydir
 	-- Setup highlights
 	utils.setup_graph_highlights()
+
+	-- Invalidate file and tag caches when any .md file in the wiki is saved
+	local augroup = vim.api.nvim_create_augroup("WomwikiCacheInvalidation", { clear = true })
+	vim.api.nvim_create_autocmd("BufWritePost", {
+		group = augroup,
+		pattern = "*.md",
+		callback = function(ev)
+			local bufpath = vim.api.nvim_buf_get_name(ev.buf)
+			if config.wikidir and vim.startswith(bufpath, config.wikidir) then
+				files.invalidate_cache()
+				tags.invalidate_cache()
+			end
+		end,
+	})
 end
 
 --------------------------------------------------------------------------------

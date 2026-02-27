@@ -16,6 +16,7 @@ M.config = {
 		enabled = true,
 		include_headings = true,
 		max_results = 50,
+		cache_ttl = 300, -- seconds before file/tag caches expire (fallback; autocmd handles normal edits)
 	},
 	wikilinks = {
 		enabled = true, -- Support [[wikilink]] syntax

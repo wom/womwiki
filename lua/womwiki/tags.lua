@@ -12,7 +12,8 @@ M.cache = {
 	file_tags = {}, -- full_path -> [tag, ...]
 	all_tags = {}, -- sorted list of all tags
 	last_scan = 0,
-	ttl = 60, -- seconds before stale
+	ttl = 300, -- seconds before stale (overridden by config.completion.cache_ttl)
+	rebuilding = false, -- true while async rebuild is in progress
 }
 
 --------------------------------------------------------------------------------
@@ -175,6 +176,136 @@ function M.get_file_tags(filepath)
 end
 
 --------------------------------------------------------------------------------
+-- Single-pass File Metadata Reader
+--------------------------------------------------------------------------------
+
+--- Parse frontmatter YAML lines for tags
+--- @param yaml_lines string[] Lines between --- delimiters
+--- @return string[] List of tags from frontmatter
+local function parse_frontmatter_tags(yaml_lines)
+	local tags = {}
+	local yaml = table.concat(yaml_lines, "\n")
+
+	-- Match tags: [a, b, c] format (inline array)
+	local tags_inline = yaml:match("tags:%s*%[([^%]]+)%]")
+	if tags_inline then
+		for tag in tags_inline:gmatch("([^,]+)") do
+			local trimmed = vim.trim(tag):gsub("^['\"]", ""):gsub("['\"]$", "")
+			if trimmed ~= "" then
+				table.insert(tags, trimmed)
+			end
+		end
+		return tags
+	end
+
+	-- Match tags: followed by - items (multi-line list)
+	local in_tags = false
+	for _, line in ipairs(yaml_lines) do
+		if line:match("^tags:%s*$") then
+			in_tags = true
+		elseif in_tags then
+			local tag = line:match("^%s*%-%s*(.+)$")
+			if tag then
+				local trimmed = vim.trim(tag):gsub("^['\"]", ""):gsub("['\"]$", "")
+				if trimmed ~= "" then
+					table.insert(tags, trimmed)
+				end
+			else
+				in_tags = false
+			end
+		end
+	end
+
+	return tags
+end
+
+--- Read file once and extract title, frontmatter tags, and inline tags
+--- @param filepath string Absolute path to file
+--- @return table { title = string|nil, tags = string[] }
+function M.read_file_metadata(filepath)
+	local result = { title = nil, tags = {} }
+	local seen = {}
+
+	local f = io.open(filepath, "r")
+	if not f then
+		return result
+	end
+
+	local inline_pattern = (config.config.tags and config.config.tags.inline_pattern) or "#([%w_-]+)"
+	local use_frontmatter = not config.config.tags or config.config.tags.use_frontmatter ~= false
+	local tags_enabled = not config.config.tags or config.config.tags.enabled ~= false
+	local in_code_block = false
+
+	-- Read first line
+	local first_line = f:read("*l")
+	if not first_line then
+		f:close()
+		return result
+	end
+
+	-- Parse frontmatter if present
+	if first_line == "---" and use_frontmatter then
+		local yaml_lines = {}
+		for line in f:lines() do
+			if line == "---" then
+				break
+			end
+			table.insert(yaml_lines, line)
+		end
+		local fm_tags = parse_frontmatter_tags(yaml_lines)
+		for _, tag in ipairs(fm_tags) do
+			if not seen[tag] then
+				seen[tag] = true
+				table.insert(result.tags, tag)
+			end
+		end
+	else
+		-- First line is content — check for title and inline tags
+		local h1 = first_line:match("^#%s+(.+)$")
+		if h1 then
+			result.title = h1
+		end
+		if tags_enabled then
+			for tag in first_line:gmatch(inline_pattern) do
+				if not seen[tag] then
+					seen[tag] = true
+					table.insert(result.tags, tag)
+				end
+			end
+		end
+	end
+
+	-- Process remaining lines
+	for line in f:lines() do
+		-- Extract title from first H1 if we don't have one yet
+		if not result.title then
+			local h1 = line:match("^#%s+(.+)$")
+			if h1 then
+				result.title = h1
+			end
+		end
+
+		-- Track code blocks
+		if line:match("^```") then
+			in_code_block = not in_code_block
+		end
+
+		-- Extract inline tags (outside code blocks)
+		if tags_enabled and not in_code_block then
+			for tag in line:gmatch(inline_pattern) do
+				if not seen[tag] then
+					seen[tag] = true
+					table.insert(result.tags, tag)
+				end
+			end
+		end
+	end
+
+	f:close()
+	return result
+end
+
+--------------------------------------------------------------------------------
 -- Tag Index Building
 --------------------------------------------------------------------------------
 
@@ -189,10 +320,14 @@ function M.build_tag_index()
 	local all_tags_set = {}
 
 	for _, file in ipairs(wiki_files) do
-		local tags = M.get_file_tags(file.full_path)
-		M.cache.file_tags[file.full_path] = tags
+		local meta = M.read_file_metadata(file.full_path)
+		-- Update file title if we got a better one from the full read
+		if meta.title then
+			file.title = meta.title
+		end
+		M.cache.file_tags[file.full_path] = meta.tags
 
-		for _, tag in ipairs(tags) do
+		for _, tag in ipairs(meta.tags) do
 			all_tags_set[tag] = true
 			if not M.cache.index[tag] then
 				M.cache.index[tag] = {}
@@ -209,12 +344,104 @@ function M.build_tag_index()
 	return M.cache.index
 end
 
---- Get tag index (builds if stale)
+--- Async tag index rebuild using ripgrep (much faster for large wikis)
+--- Falls back to Lua-based build_tag_index if rg is not available.
+--- @param callback function|nil Called when rebuild is complete
+function M.build_tag_index_rg(callback)
+	local wikidir = config.wikidir
+	if not wikidir then
+		if callback then
+			callback()
+		end
+		return
+	end
+
+	-- Convert Lua pattern to a regex approximation for rg
+	-- The default pattern #([%w_-]+) becomes #[\w_-]+
+	local rg_pattern = "#[\\w_-]+"
+
+	local stdout_data = {}
+
+	vim.fn.jobstart({ "rg", "--no-filename", "-oN", "--glob", "*.md", rg_pattern, wikidir }, {
+		stdout_buffered = true,
+		on_stdout = function(_, data)
+			stdout_data = data
+		end,
+		on_exit = function(_, exit_code)
+			vim.schedule(function()
+				if exit_code ~= 0 and exit_code ~= 1 then
+					-- rg failed (not just "no matches"), fall back to Lua
+					M.build_tag_index()
+					if callback then
+						callback()
+					end
+					return
+				end
+
+				-- Parse rg output: each line is a match like "#tagname"
+				local all_tags_set = {}
+				for _, line in ipairs(stdout_data) do
+					if line ~= "" then
+						local tag = line:match("^#([%w_-]+)")
+						if tag then
+							all_tags_set[tag] = true
+						end
+					end
+				end
+
+				-- We only get the tag names from rg, not file associations.
+				-- For the tag index (tag -> files mapping), we still need the
+				-- full Lua scan. But for completion (which only needs tag names),
+				-- we can update all_tags immediately and do the full rebuild later.
+				M.cache.all_tags = vim.tbl_keys(all_tags_set)
+				table.sort(M.cache.all_tags)
+				M.cache.last_scan = os.time()
+
+				-- Now do the full rebuild in the background for tag->file mapping
+				vim.schedule(function()
+					M.build_tag_index()
+					if callback then
+						callback()
+					end
+				end)
+			end)
+		end,
+	})
+end
+
+--- Check if ripgrep is available
+--- @return boolean
+local rg_available = nil
+local function has_rg()
+	if rg_available == nil then
+		rg_available = vim.fn.executable("rg") == 1
+	end
+	return rg_available
+end
+
+--- Get tag index (returns stale data immediately, rebuilds async if needed)
 --- @return table Tag index
 function M.get_tag_index()
+	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
 	local now = os.time()
-	if now - M.cache.last_scan > M.cache.ttl then
-		M.build_tag_index()
+	if now - M.cache.last_scan > ttl and not M.cache.rebuilding then
+		-- If we have no data at all, do a synchronous build (first load)
+		if M.cache.last_scan == 0 then
+			M.build_tag_index()
+		else
+			-- Return stale data now, rebuild in background
+			M.cache.rebuilding = true
+			if has_rg() then
+				M.build_tag_index_rg(function()
+					M.cache.rebuilding = false
+				end)
+			else
+				vim.schedule(function()
+					M.build_tag_index()
+					M.cache.rebuilding = false
+				end)
+			end
+		end
 	end
 	return M.cache.index
 end
@@ -222,7 +449,7 @@ end
 --- Get all tags (builds index if stale)
 --- @return string[] Sorted list of all tags
 function M.get_all_tags()
-	M.get_tag_index() -- Ensure cache is fresh
+	M.get_tag_index() -- Ensure cache is fresh (or trigger async refresh)
 	return M.cache.all_tags
 end
 

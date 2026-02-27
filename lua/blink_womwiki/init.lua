@@ -26,13 +26,31 @@ function source:get_completions(ctx, callback)
 	local completion = require("womwiki.completion")
 	local result = completion.get_items(line_before_cursor)
 
-	-- For wikilinks, add ]] suffix to insertText
+	-- Calculate the start of the typed text for textEdit range
+	local edit_start_col = nil
+	if result.link_type == "wikilink" then
+		-- Find [[ position — edit range starts after [[
+		local wikilink_pos = line_before_cursor:find("%[%[[^%]]*$")
+		if wikilink_pos then
+			edit_start_col = wikilink_pos + 1 -- after the second [
+		end
+	end
+
 	local items = {}
 	for _, item in ipairs(result.items) do
 		local new_item = vim.deepcopy(item)
-		if result.link_type == "wikilink" and item.insertTextSuffix then
-			-- Append ]] when completing wikilinks
-			new_item.insertText = (item.insertText or item.label) .. item.insertTextSuffix
+		if result.link_type == "wikilink" and item.insertTextSuffix and edit_start_col then
+			-- Use textEdit with explicit range to avoid blink.cmp range miscalculation
+			local new_text = (item.insertText or item.label) .. item.insertTextSuffix
+			new_item.textEdit = {
+				range = {
+					start = { line = ctx.cursor[1] - 1, character = edit_start_col },
+					["end"] = { line = ctx.cursor[1] - 1, character = cursor_col },
+				},
+				newText = new_text,
+			}
+			new_item.insertText = nil
+			new_item.insertTextSuffix = nil
 		end
 		table.insert(items, new_item)
 	end
