@@ -69,6 +69,7 @@ end
 local function word_to_link()
 	local line = vim.api.nvim_get_current_line()
 	local col = vim.api.nvim_win_get_cursor(0)[2]
+	local row = vim.api.nvim_win_get_cursor(0)[1]
 	local womwiki = require("womwiki")
 	local link_style = womwiki.config.default_link_style or "markdown"
 
@@ -77,11 +78,18 @@ local function word_to_link()
 		local bracket_start = start_pos - 1
 		local bracket_end = start_pos + #text + #url + 3
 		if col >= bracket_start and col < bracket_end then
-			-- Cursor is over a link, position inside the [text] part
-			local text_start = start_pos
-			local text_end = start_pos + #text - 1
-			vim.api.nvim_win_set_cursor(0, { vim.api.nvim_win_get_cursor(0)[1], text_start })
-			vim.cmd("normal! v" .. (text_end - text_start) .. "lc")
+			-- Skip URL links — can't convert to wikilink
+			if url:match("^https?://") then
+				vim.notify("Cannot convert URL link to wikilink", vim.log.levels.WARN)
+				return
+			end
+			-- Convert markdown link → wikilink: [text](file.md) → [[file]]
+			local link_name = url:gsub("%.md$", "")
+			local replacement = "[[" .. link_name .. "]]"
+			local new_line = line:sub(1, bracket_start) .. replacement .. line:sub(bracket_end + 1)
+			vim.api.nvim_set_current_line(new_line)
+			-- Position cursor inside the wikilink
+			vim.api.nvim_win_set_cursor(0, { row, bracket_start + 2 })
 			return
 		end
 	end
@@ -91,12 +99,15 @@ local function word_to_link()
 		local bracket_start = start_pos - 1
 		local bracket_end = start_pos + #content + 3
 		if col >= bracket_start and col < bracket_end then
-			-- Cursor is over a wikilink, extract the link part (before |)
+			-- Convert wikilink → markdown link: [[page]] → [page](page.md)
 			local link_part = content:match("^([^|]+)") or content
-			local text_start = start_pos + 1 -- After [[
-			local text_end = text_start + #link_part - 1
-			vim.api.nvim_win_set_cursor(0, { vim.api.nvim_win_get_cursor(0)[1], text_start })
-			vim.cmd("normal! v" .. (text_end - text_start) .. "lc")
+			local display = content:match("^[^|]+|(.+)$") or link_part
+			local file_path = ensure_md_extension(link_part)
+			local replacement = "[" .. display .. "](" .. file_path .. ")"
+			local new_line = line:sub(1, bracket_start) .. replacement .. line:sub(bracket_end + 1)
+			vim.api.nvim_set_current_line(new_line)
+			-- Position cursor inside the markdown link text
+			vim.api.nvim_win_set_cursor(0, { row, bracket_start + 1 })
 			return
 		end
 	end
@@ -111,7 +122,7 @@ local function word_to_link()
 		if col >= url_start - 1 and col < url_end then
 			-- Cursor is over a URL - always use markdown format for URLs
 			local url = line:sub(url_start, url_end)
-			vim.api.nvim_win_set_cursor(0, { vim.api.nvim_win_get_cursor(0)[1], url_start - 1 })
+			vim.api.nvim_win_set_cursor(0, { row, url_start - 1 })
 			vim.cmd("normal! v" .. (url_end - url_start) .. "lc[](" .. url .. ")")
 			vim.cmd("normal! F[li")
 			return
@@ -429,7 +440,7 @@ end
 
 vim.keymap.set("n", "<leader>ml", word_to_link, {
 	buffer = true,
-	desc = "Convert word to link (respects default_link_style)",
+	desc = "Convert word to link / cycle link format",
 	silent = true,
 })
 

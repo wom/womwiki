@@ -389,9 +389,11 @@ These are set buffer-locally for markdown files via ftplugin:
 
     <CR>            Same as |gf| - follow markdown link.
 
-    <leader>ml      Convert word under cursor to markdown link.
-                    If cursor is on a URL, wraps it as `[](url)`.
-                    If cursor is on existing link, selects the text.
+    <leader>ml      Convert word under cursor to link, or cycle format.
+                    On plain word: creates link (respects default_link_style).
+                    On `[text](file.md)`: converts to `[[file]]`.
+                    On `[[file]]`: converts to `[file](file.md)`.
+                    On a URL: wraps as `[](url)`.
 
     <leader>mc      Toggle markdown checkbox. Works in visual mode.
                     Cycles: no checkbox → `- [ ]` → `- [x]` → no checkbox

@@ -121,7 +121,7 @@ The navigation line at the top allows jumping between daily notes:
 **Note:** Keep your template in your wiki directory (`<wikidir>/.templates/daily.md`) to make your wiki self-contained and portable.
 
 Markdown buffer mappings:
-- `<leader>ml`: Convert word to markdown link
+- `<leader>ml`: Convert word to link / cycle link format (`[text](file)` ↔ `[[file]]`)
 - `<leader>mc`: Toggle checkbox
 - `gf`: Follow markdown link (enhanced)
 - `<CR>`: Follow markdown link
