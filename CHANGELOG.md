@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Completion caching**: File list and tag index are now cached with configurable TTL (`completion.cache_ttl`, default 300s)
+- **Event-driven cache invalidation**: Caches auto-invalidate on `BufWritePost` for wiki `.md` files
+- **Async tag rebuild**: Stale tag data is returned immediately while fresh data rebuilds in the background
+- **Ripgrep tag scanning**: Uses `rg` for faster tag scanning when available, with Lua fallback
+
+### Fixed
+- **Heading vs tag completion**: Typing `#` at line start (markdown headings) no longer triggers tag completion
+- **blink.cmp wikilink error**: Fixed `start_col must be less than or equal to end_col` error when completing `[[` wikilinks with blink.cmp
+
+### Changed
+- Default tag cache TTL increased from 60s to 300s (event-driven invalidation handles normal edits)
+- Tag index building now reads each file once instead of three times (single-pass metadata reader)
+
 ### Planned
 - Index file support (open wiki root index.md)
 - Custom todo markers and statuses

@@ -1,0 +1,41 @@
+# User (0b853e47-3be3-4299-9289-2653f5902600) ---
+
+##git://diff/staged
+
+
+Write commit message for the change with commitizen convention. Keep the title under 50 characters and wrap message at 72 characters. Format as a gitcommit code block.
+
+# Copilot (b21fe71c-5520-456f-972b-63c6166dfa92) ---
+
+Looking at the staged changes, this is a significant feature addition implementing comprehensive tag support for the womwiki plugin. The changes include:
+
+- Tag parsing (frontmatter YAML + inline #tags)
+- Tag completion in markdown files 
+- Tag indexing and caching
+- Tag management commands (list, filter, add)
+- Tag highlighting
+- Integration with various picker frameworks
+
+```gitcommit
+feat: add comprehensive tag support with completion and management
+
+- Add tag parsing for YAML frontmatter and inline #tags
+- Implement tag completion with # trigger character
+- Add tag indexing and caching for performance
+- Create tag management commands (list, filter, add tags)
+- Add tag highlighting with WomwikiTag highlight group
+- Integrate with telescope, fzf-lua, mini.pick, and snacks.nvim
+- Support tag filtering and navigation through picker interfaces
+- Add tags submenu to analyze menu with tag operations
+- Configure tag patterns and frontmatter support via config
+
+This enables full tag-based organization and navigation within
+the wiki system, supporting both YAML frontmatter tags and
+inline hashtag-style tags throughout markdown content.
+```
+
+# User (acc33333-e5a7-4a21-952e-1c4663e5b3f8) ---
+
+> #gitdiff:staged
+
+

@@ -129,6 +129,13 @@ completion ~
         Default: `50`
         Maximum number of completion results to show.
 
+    completion.cache_ttl ~
+        Type: `number`
+        Default: `300`
+        Seconds before file and tag caches expire. Caches are also
+        invalidated automatically on `BufWritePost` for wiki files,
+        so this TTL is mainly a fallback.
+
                                                   *womwiki.config.wikilinks*
 wikilinks ~
     Type: `table`
@@ -527,9 +534,12 @@ from your wiki. This helps maintain consistent tag naming.
 
 CACHING ~
 
-Tags are cached in memory with a 60-second TTL. The cache rebuilds
-automatically when stale. Adding a tag via |womwiki.add_tag()| invalidates
-the cache immediately.
+Tags and file lists are cached in memory with a configurable TTL (default
+300 seconds). Caches are also invalidated automatically when you save any
+`.md` file in your wiki directory (`BufWritePost` autocmd). After the first
+load, stale caches return data immediately while rebuilding in the
+background, so completion never blocks the editor. If `rg` (ripgrep) is
+available, tag scanning uses it for faster rebuilds.
 
 ==============================================================================
 10. WIKILINKS                                          *womwiki-wikilinks*

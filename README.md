@@ -128,7 +128,7 @@ Markdown buffer mappings:
 
 ## Completion
 
-womwiki provides link completion when typing `](` in markdown files. It supports both **nvim-cmp** and **blink.cmp**.
+womwiki provides link completion when typing `](`, `[[`, or `#` in markdown files. It supports both **nvim-cmp** and **blink.cmp**.
 
 ### blink.cmp Setup
 
@@ -174,7 +174,9 @@ The source is automatically registered when nvim-cmp is detected. To manually co
 
 ### Completion Features
 
-- **File completion**: Type `[link text](` to get wiki file suggestions
+- **File completion**: Type `[link text](` or `[[` to get wiki file suggestions
 - **Heading completion**: Type `[link](file.md#` to complete headings within that file
+- **Tag completion**: Type `#` (after text) to complete existing tags
 - Fuzzy matching on both filename and title
+- Results are cached and rebuild asynchronously — completion never blocks the editor
 
