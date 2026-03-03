@@ -74,7 +74,7 @@ local function word_to_link()
 	local link_style = womwiki.config.default_link_style or "markdown"
 
 	-- Check if cursor is over an existing markdown link [text](url)
-for start_pos, text, url in line:gmatch("()%[([^%]]+)%]%(([^%)]+)%)") do
+	for start_pos, text, url in line:gmatch("()%[([^%]]+)%]%(([^%)]*)%)") do
 		local bracket_start = start_pos - 1
 		local bracket_end = start_pos + #text + #url + 3
 		if col >= bracket_start and col < bracket_end then
@@ -83,9 +83,14 @@ for start_pos, text, url in line:gmatch("()%[([^%]]+)%]%(([^%)]+)%)") do
 				vim.notify("Cannot convert URL link to wikilink", vim.log.levels.WARN)
 				return
 			end
-			-- Convert markdown link → wikilink: [text](file.md) → [[file]]
-			local link_name = url:gsub("%.md$", "")
-			local replacement = "[[" .. link_name .. "]]"
+			-- Convert markdown link → wikilink: [text](file.md) → [[file|text]] if text ~= file, else [[file]]
+			local link_name = url ~= "" and url:gsub("%.md$", "") or text
+			local replacement
+			if text == link_name then
+				replacement = "[[" .. link_name .. "]]"
+			else
+				replacement = "[[" .. link_name .. "|" .. text .. "]]"
+			end
 			local new_line = line:sub(1, bracket_start) .. replacement .. line:sub(bracket_end + 1)
 			vim.api.nvim_set_current_line(new_line)
 			-- Position cursor inside the wikilink
@@ -99,7 +104,7 @@ for start_pos, text, url in line:gmatch("()%[([^%]]+)%]%(([^%)]+)%)") do
 		local bracket_start = start_pos - 1
 		local bracket_end = start_pos + #content + 3
 		if col >= bracket_start and col < bracket_end then
-			-- Convert wikilink → markdown link: [[page]] → [page](page.md)
+			-- Convert wikilink → markdown link: [[page]] or [[page|display]] → [display](page.md)
 			local link_part = content:match("^([^|]+)") or content
 			local display = content:match("^[^|]+|(.+)$") or link_part
 			local file_path = ensure_md_extension(link_part)
