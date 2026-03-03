@@ -16,6 +16,9 @@ The plugin will automatically detect which one is available and use it.
 For improved markdown viewing experience:
 - [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) - Beautiful inline markdown rendering with proper formatting, checkboxes, and code blocks
 
+For table editing in wiki files:
+- [table.vim](https://github.com/numEricL/table.vim) - Auto-aligned markdown table editing with cell navigation and sorting. Automatically configured for markdown style in wiki buffers when detected.
+
 ## Installation
 
 Using [lazy.nvim](https://github.com/folke/lazy.nvim):

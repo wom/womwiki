@@ -481,3 +481,17 @@ if has_womwiki and womwiki.config.tags and womwiki.config.tags.enabled then
 	-- Highlight inline #tags (but not in code blocks or URLs)
 	vim.fn.matchadd("WomwikiTag", "\\v(^|\\s)#[a-zA-Z0-9_-]+")
 end
+
+-- Auto-configure table.vim for wiki buffers
+if vim.b.womwiki then
+	local has_table_vim = pcall(require, "table_vim")
+	if has_table_vim then
+		vim.fn["table#SetBufferConfig"]({
+			style = "markdown",
+			options = {
+				default_alignment = "center",
+				multiline = "auto",
+			},
+		})
+	end
+end
