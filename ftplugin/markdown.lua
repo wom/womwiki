@@ -74,7 +74,7 @@ local function word_to_link()
 	local link_style = womwiki.config.default_link_style or "markdown"
 
 	-- Check if cursor is over an existing markdown link [text](url)
-	for start_pos, text, url in line:gmatch("()%[([^%]]+)%]%(([^%)]+)%)") do
+for start_pos, text, url in line:gmatch("()%[([^%]]+)%]%(([^%)]+)%)") do
 		local bracket_start = start_pos - 1
 		local bracket_end = start_pos + #text + #url + 3
 		if col >= bracket_start and col < bracket_end then
@@ -148,6 +148,8 @@ local function word_to_link()
 end
 
 -- Toggle markdown checkbox on line(s)
+-- Cycle: plain list → [ ] → [-] → [x] → [ ]
+-- Non-list lines and [>] forwarded items are no-ops
 local function toggle_markdown_checkbox()
 	local start_line = vim.fn.line(".")
 	local end_line = vim.fn.line(".")
@@ -167,35 +169,35 @@ local function toggle_markdown_checkbox()
 		local indent = line:match("^(%s*)")
 		local content = line:sub(#indent + 1)
 
-		-- Detect existing list marker (- or *)
-		local marker = "-"
-		local has_marker = false
+		-- Detect list marker: - , * , or numbered (1. , 2. , etc.)
+		local marker, marker_len
 		if content:match("^[%-%*] ") then
 			marker = content:sub(1, 1)
-			has_marker = true
+			marker_len = 2
+		elseif content:match("^%d+%. ") then
+			marker = content:match("^(%d+%.)")
+			marker_len = #marker + 1
 		end
 
-		-- Check if line already has a checkbox
-		if content:match("^[%-%*] %[ %] ") then
-			-- Toggle to checked
-			local new_line = indent .. content:gsub("^([%-%*]) %[ %] ", "%1 [x] ")
-			vim.fn.setline(lnum, new_line)
-		elseif content:match("^[%-%*] %[x%] ") or content:match("^[%-%*] %[X%] ") then
-			-- Remove checkbox, keep marker and content
-			local new_line = indent .. content:gsub("^([%-%*]) %[[xX]%] ", "%1 ")
-			vim.fn.setline(lnum, new_line)
-		else
-			-- Add unchecked checkbox
-			if has_marker then
-				-- Already has - or *, insert checkbox after marker
-				local rest = content:sub(3) -- Everything after "- " or "* "
-				vim.fn.setline(lnum, indent .. marker .. " [ ] " .. rest)
-			else
-				-- No marker, add default - with checkbox
-				if content == "" then
-					vim.fn.setline(lnum, indent .. "- [ ] ")
+		if marker then
+			local is_forwarded = content:match("^[%-%*] %[>%] ") or content:match("^%d+%. %[>%] ")
+			if not is_forwarded then
+				if content:match("^[%-%*] %[ %] ") or content:match("^%d+%. %[ %] ") then
+					-- [ ] → [-]
+					local new_line = indent .. content:gsub("^(.-%[) (%].)", "%1-%2")
+					vim.fn.setline(lnum, new_line)
+				elseif content:match("^[%-%*] %[%-%] ") or content:match("^%d+%. %[%-%] ") then
+					-- [-] → [x]
+					local new_line = indent .. content:gsub("^(.-%[)%-(%].)", "%1x%2")
+					vim.fn.setline(lnum, new_line)
+				elseif content:match("^[%-%*] %[[xX]%] ") or content:match("^%d+%. %[[xX]%] ") then
+					-- [x] → [ ]
+					local new_line = indent .. content:gsub("^(.-%[)[xX](%].)", "%1 %2")
+					vim.fn.setline(lnum, new_line)
 				else
-					vim.fn.setline(lnum, indent .. "- [ ] " .. content)
+					-- List item without checkbox: add [ ]
+					local rest = content:sub(marker_len + 1)
+					vim.fn.setline(lnum, indent .. marker .. " [ ] " .. rest)
 				end
 			end
 		end
@@ -445,6 +447,12 @@ vim.keymap.set("n", "<leader>ml", word_to_link, {
 })
 
 vim.keymap.set({ "n", "v" }, "<leader>mc", toggle_markdown_checkbox, {
+	buffer = true,
+	desc = "Toggle markdown checkbox",
+	silent = true,
+})
+
+vim.keymap.set({ "n", "v" }, "<Space><Space>", toggle_markdown_checkbox, {
 	buffer = true,
 	desc = "Toggle markdown checkbox",
 	silent = true,
