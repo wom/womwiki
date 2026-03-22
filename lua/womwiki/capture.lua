@@ -9,7 +9,7 @@ local M = {}
 -- Get current buffer location as markdown link [file:line](path#Lline)
 local function get_location_link()
 	local bufname = vim.fn.expand("%:p")
-	if bufname == "" or vim.bo.buftype ~= "" then
+	if bufname == "" or vim.bo[0].buftype ~= "" then
 		return nil
 	end
 

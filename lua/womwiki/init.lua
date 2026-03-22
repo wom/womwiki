@@ -25,6 +25,7 @@ M.config = config.config
 M.wikidir = config.wikidir
 M.dailydir = config.dailydir
 
+--- @param opts womwiki.Config.Partial?
 function M.setup(opts)
 	config.setup(opts)
 	-- Update our re-exported references
@@ -170,7 +171,7 @@ function M.setup_completion()
 	if not config.config.completion.enabled then
 		return
 	end
-	vim.bo.omnifunc = "v:lua.require'womwiki'.link_complete"
+	vim.bo[0].omnifunc = "v:lua.require'womwiki'.link_complete"
 
 	local has_cmp, cmp = pcall(require, "cmp")
 	if has_cmp then

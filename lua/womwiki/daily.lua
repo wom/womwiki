@@ -304,7 +304,7 @@ function M.open(days_offset)
 
 	-- Open the file in the editor
 	-- If actively editing a file, use split; otherwise use full screen
-	local should_split = vim.fn.bufname() ~= "" and vim.bo.buftype == "" and vim.fn.line("$") > 1
+	local should_split = vim.fn.bufname() ~= "" and vim.bo[0].buftype == "" and vim.fn.line("$") > 1
 
 	if should_split then
 		-- Split view: 20% height or minimum 10 lines

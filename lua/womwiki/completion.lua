@@ -150,7 +150,7 @@ end
 --- Check if completion should be available
 --- @return boolean
 function M.is_available()
-	return vim.bo.filetype == "markdown"
+	return vim.bo[0].filetype == "markdown"
 end
 
 return M
