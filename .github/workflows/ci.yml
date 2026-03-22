@@ -44,7 +44,14 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim }}
 
-      - name: Run smoke test
+      - name: Install mini.nvim
         run: |
-          nvim --version
-          nvim --headless -u tests/minimal_init.lua -c "lua require('tests.smoke_test')" -c "qa!"
+          mkdir -p ~/.local/share/nvim/site/pack/deps/start
+          git clone --depth 1 https://github.com/echasnovski/mini.nvim \
+            ~/.local/share/nvim/site/pack/deps/start/mini.nvim
+
+      - name: Run smoke test
+        run: make test
+
+      - name: Run unit tests
+        run: make test-unit
