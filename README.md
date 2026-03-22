@@ -1,5 +1,7 @@
 # womwiki
 
+[![CI](https://github.com/wom/womwiki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wom/womwiki/actions/workflows/ci.yml)
+
 A Neovim plugin for managing your personal wiki.
 
 ## Dependencies
