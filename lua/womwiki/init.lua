@@ -139,7 +139,10 @@ function M.link_complete(findstart, base)
 				local headings = files.get_file_headings(target_file)
 				for _, heading in ipairs(headings) do
 					local word = file_part .. "#" .. heading.slug
-					if word:lower():find(base:lower(), 1, true) or heading.text:lower():find((heading_part or ""):lower(), 1, true) then
+					if
+						word:lower():find(base:lower(), 1, true)
+						or heading.text:lower():find((heading_part or ""):lower(), 1, true)
+					then
 						table.insert(items, {
 							word = word,
 							menu = heading.text,
@@ -205,7 +208,13 @@ local function get_main_choices()
 	if is_today_daily_open() then
 		table.insert(choices, { "Close [D]aily", "d", M.close_daily })
 	else
-		table.insert(choices, { "[T]oday", "t", function() M.open_daily() end })
+		table.insert(choices, {
+			"[T]oday",
+			"t",
+			function()
+				M.open_daily()
+			end,
+		})
 	end
 
 	table.insert(choices, { "[Q]uick Capture", "q", M.capture })
@@ -226,7 +235,13 @@ function M.browse_and_search_menu()
 	M.show_menu({
 		{ "Browse [A]ll Notes", "a", M.wiki },
 		{ "Browse [D]ailies", "d", M.dailies },
-		{ "[Y]esterday", "y", function() M.open_daily(-1) end },
+		{
+			"[Y]esterday",
+			"y",
+			function()
+				M.open_daily(-1)
+			end,
+		},
 	}, "Browse & Search", M.picker)
 end
 

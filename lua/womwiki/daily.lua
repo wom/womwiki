@@ -168,9 +168,9 @@ function M.get_most_recent_previous_daily(reference_date)
 	local target_date = nil
 	for _, date in ipairs(dates) do
 		if date < reference_date then
-			target_date = date  -- Keep updating to get the most recent one before reference_date
+			target_date = date -- Keep updating to get the most recent one before reference_date
 		else
-			break  -- Since sorted, we won't find any more before reference_date
+			break -- Since sorted, we won't find any more before reference_date
 		end
 	end
 

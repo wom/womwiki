@@ -295,12 +295,8 @@ function M.get_file_headings(filepath)
 	for line in f:lines() do
 		local level, text = line:match("^(#+)%s+(.+)$")
 		if level and text then
-			local slug = text:lower()
-				:gsub("[^%w%s-]", "")
-				:gsub("%s+", "-")
-				:gsub("%-+", "-")
-				:gsub("^%-", "")
-				:gsub("%-$", "")
+			local slug =
+				text:lower():gsub("[^%w%s-]", ""):gsub("%s+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")
 			table.insert(headings, {
 				text = text,
 				slug = slug,
