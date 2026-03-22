@@ -262,11 +262,9 @@ function M.open(days_offset)
 
 	-- Check if the file exists
 	local file = io.open(expanded_filename, "r")
-	local is_new_file = false
 	if file then
 		file:close()
 	else
-		is_new_file = true
 		-- File doesn't exist, create it with the template content
 		local template_content = M.get_template_content()
 		local content = template_content:gsub("{{ date }}", date)
@@ -494,9 +492,7 @@ function M.modernize_headers()
 				file:close()
 
 				if first_line then
-					if first_line:match(NAV_PATTERNS.new) then
-						-- Already has new format, skip
-					elseif first_line:match(NAV_PATTERNS.old) then
+					if first_line:match(NAV_PATTERNS.old) then
 						-- Old format, needs update
 						table.insert(to_update, {
 							name = filename,
@@ -513,8 +509,8 @@ function M.modernize_headers()
 							first_line = first_line,
 							rest = rest,
 						})
-					else
-						-- Ambiguous format, skip
+					elseif not first_line:match(NAV_PATTERNS.new) then
+						-- Ambiguous format, skip (new format files need no action)
 						skipped = skipped + 1
 					end
 				end

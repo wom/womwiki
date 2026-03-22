@@ -1,7 +1,6 @@
 -- womwiki/calendar.lua
 -- Interactive calendar view for navigating daily notes
 
-local config = require("womwiki.config")
 local daily = require("womwiki.daily")
 
 local M = {}

@@ -83,7 +83,7 @@ function M.get_items(line)
 	local files = womwiki.get_wiki_files()
 
 	-- Check if user is typing a heading reference (contains #)
-	local file_part, heading_part = typed:match("^(.-)#(.*)$")
+	local file_part, _ = typed:match("^(.-)#(.*)$")
 
 	if file_part and womwiki.config.completion.include_headings then
 		-- Complete headings for the specified file
