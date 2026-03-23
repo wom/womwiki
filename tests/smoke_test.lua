@@ -25,4 +25,3 @@ if not setup_ok then
 end
 
 print("SUCCESS: womwiki plugin loaded and initialized")
-

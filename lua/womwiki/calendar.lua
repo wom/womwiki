@@ -5,16 +5,23 @@ local daily = require("womwiki.daily")
 
 local M = {}
 
--- Pure date helpers (exported for testing)
+--- Get the number of days in a given month (test helper)
+--- @param year integer
+--- @param month integer
+--- @return integer
 function M._days_in_month(year, month)
 	return os.date("*t", os.time({ year = year, month = month + 1, day = 0 })).day
 end
 
+--- Get the weekday of the first day of a month (1=Sunday .. 7=Saturday)
+--- @param year integer
+--- @param month integer
+--- @return integer
 function M._first_day_of_month(year, month)
 	return os.date("*t", os.time({ year = year, month = month, day = 1 })).wday
 end
 
--- Show calendar popup for navigating daily notes
+--- Show interactive calendar popup for navigating daily notes
 function M.show()
 	local current_year = tonumber(os.date("%Y"))
 	local current_month = tonumber(os.date("%m"))

@@ -2,6 +2,8 @@
 -- Daily notes functionality: open, close, cleanup, templates
 
 local config = require("womwiki.config")
+local utils = require("womwiki.utils")
+local patterns = config.patterns
 
 local M = {}
 
@@ -16,8 +18,10 @@ M.DEFAULT_TEMPLATE = [=[<!-- [[« Prev]] · [[Next »]] -->
 ## Log
 ]=]
 
--- Get daily template path with fallback logic
--- Priority: 1. Wiki template, 2. Config template, 3. Built-in default
+--- Get daily template path with fallback logic
+--- Priority: 1. Wiki template, 2. Config template, 3. Built-in default
+--- @return string|nil path Path to template file or nil for built-in
+--- @return string source Template source: "wiki", "config", or "builtin"
 function M.get_template_path()
 	-- Check wiki template first
 	local wiki_template = config.wikidir .. "/.templates/daily.md"
@@ -39,7 +43,8 @@ function M.get_template_path()
 	return nil, "builtin"
 end
 
--- Get daily template content
+--- Get daily template content, falling back to built-in default
+--- @return string Template content with {{ date }} placeholder
 function M.get_template_content()
 	local template_path, source = M.get_template_path()
 
@@ -47,18 +52,16 @@ function M.get_template_content()
 		return M.DEFAULT_TEMPLATE
 	end
 
-	local file = io.open(template_path, "r")
-	if not file then
+	local content = utils.read_file(template_path)
+	if not content then
 		vim.notify("Failed to read template: " .. template_path, vim.log.levels.ERROR)
 		return M.DEFAULT_TEMPLATE
 	end
-
-	local content = file:read("*a")
-	file:close()
 	return content
 end
 
--- List all files in the daily directory
+--- List all files in the daily directory
+--- @return string[] Sorted daily filenames (e.g. "2024-01-15.md")
 function M.list_files()
 	local files = {}
 	local handle = vim.uv.fs_scandir(config.dailydir)
@@ -86,8 +89,9 @@ local function get_current_daily_date()
 	return nil
 end
 
--- Get adjacent daily note (prev or next existing one)
--- direction: -1 for prev, 1 for next
+--- Get adjacent daily note date (prev or next existing one)
+--- @param direction integer -1 for previous, 1 for next
+--- @return string|nil Date string (YYYY-MM-DD) or nil if none found
 function M.get_adjacent_daily(direction)
 	local current_date = get_current_daily_date()
 	if not current_date then
@@ -99,7 +103,7 @@ function M.get_adjacent_daily(direction)
 	local files = M.list_files()
 	local dates = {}
 	for _, f in ipairs(files) do
-		local date = f:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		local date = f:match(patterns.DATE_FILENAME)
 		if date then
 			table.insert(dates, date)
 		end
@@ -128,7 +132,7 @@ function M.get_adjacent_daily(direction)
 	return dates[target_idx]
 end
 
--- Navigate to previous daily note
+--- Navigate to the previous daily note
 function M.prev()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -146,7 +150,7 @@ function M.prev()
 	end
 end
 
--- Navigate to next daily note
+--- Navigate to the next daily note
 function M.next()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -164,12 +168,14 @@ function M.next()
 	end
 end
 
--- Find the most recent existing daily before a given date
+--- Find the most recent existing daily note before a given date
+--- @param reference_date string Date in YYYY-MM-DD format
+--- @return string|nil Date string (YYYY-MM-DD) or nil if none found
 function M.get_most_recent_previous_daily(reference_date)
 	local files = M.list_files()
 	local dates = {}
 	for _, f in ipairs(files) do
-		local date = f:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		local date = f:match(patterns.DATE_FILENAME)
 		if date then
 			table.insert(dates, date)
 		end
@@ -189,38 +195,35 @@ function M.get_most_recent_previous_daily(reference_date)
 	return target_date
 end
 
--- Extract incomplete todos from a daily note file
+--- Extract incomplete todos from a daily note file
+--- @param filepath string Absolute path to the daily note
+--- @return string[] Lines containing unchecked or blocked todos
 function M.extract_incomplete_todos(filepath)
 	local todos = {}
-	local file = io.open(filepath, "r")
-	if not file then
+	local lines = utils.read_lines(filepath)
+	if not lines then
 		return todos
 	end
 
-	for line in file:lines() do
+	for _, line in ipairs(lines) do
 		-- Match lines with [ ] (unchecked) or [-] (blocked/in progress)
 		if line:match("^%s*%-(%s+)%[%s%]") or line:match("^%s*%-(%s+)%[%-]") then
 			table.insert(todos, line)
 		end
 	end
 
-	file:close()
 	return todos
 end
 
--- Mark forwarded todos in a file (change [ ] or [-] to [>])
+--- Mark forwarded todos in a file (change [ ] or [-] to [>])
+--- @param filepath string Absolute path to the daily note
+--- @param todo_lines_to_mark string[] Todo lines to mark as forwarded
+--- @return boolean Whether the file was successfully updated
 function M.mark_todos_forwarded(filepath, todo_lines_to_mark)
-	local file = io.open(filepath, "r")
-	if not file then
+	local lines = utils.read_lines(filepath)
+	if not lines then
 		return false
 	end
-
-	-- Read all lines
-	local lines = {}
-	for line in file:lines() do
-		table.insert(lines, line)
-	end
-	file:close()
 
 	-- Create a set of todos to mark (strip leading/trailing whitespace for comparison)
 	local todos_to_mark = {}
@@ -240,19 +243,14 @@ function M.mark_todos_forwarded(filepath, todo_lines_to_mark)
 	end
 
 	-- Write back
-	file = io.open(filepath, "w")
-	if not file then
+	if not utils.write_file(filepath, table.concat(lines, "\n") .. "\n") then
 		return false
 	end
-	for _, line in ipairs(lines) do
-		file:write(line .. "\n")
-	end
-	file:close()
 
 	return true
 end
 
--- Setup buffer-local keymaps for daily notes
+--- Setup buffer-local keymaps for daily notes
 function M.setup_daily_buffer()
 	vim.b.womwiki = true
 	vim.cmd("lcd " .. vim.fn.fnameescape(config.wikidir))
@@ -263,7 +261,8 @@ function M.setup_daily_buffer()
 	-- Note: <CR> link following is handled by ftplugin/markdown.lua
 end
 
--- Open or create a daily file with a specified offset in days
+--- Open or create a daily file with a specified offset in days
+--- @param days_offset integer|nil Number of days from today (default 0)
 function M.open(days_offset)
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -288,13 +287,10 @@ function M.open(days_offset)
 		local template_content = M.get_template_content()
 		local content = template_content:gsub("{{ date }}", date)
 
-		file = io.open(expanded_filename, "w")
-		if not file then
+		if not utils.write_file(expanded_filename, content) then
 			vim.notify("Failed to create daily file: " .. expanded_filename, vim.log.levels.ERROR)
 			return
 		end
-		file:write(content)
-		file:close()
 
 		-- If this is a new file, check for incomplete todos from most recent previous daily
 		local prev_date = M.get_most_recent_previous_daily(date)
@@ -304,14 +300,12 @@ function M.open(days_offset)
 
 			if #todos > 0 then
 				-- Append rollover section to new file
-				file = io.open(expanded_filename, "a")
-				if file then
-					file:write("\n## Rolled over from [[" .. prev_date .. "]]\n\n")
-					for _, todo in ipairs(todos) do
-						file:write(todo .. "\n")
-					end
-					file:close()
-
+				-- Append rollover section to new file
+				local rollover_content = "\n## Rolled over from [[" .. prev_date .. "]]\n\n"
+				for _, todo in ipairs(todos) do
+					rollover_content = rollover_content .. todo .. "\n"
+				end
+				if utils.append_file(expanded_filename, rollover_content) then
 					-- Mark todos as forwarded in previous file
 					M.mark_todos_forwarded(prev_filepath, todos)
 				end
@@ -333,7 +327,7 @@ function M.open(days_offset)
 	M.setup_daily_buffer()
 end
 
--- Close daily note buffer
+--- Close daily note buffer
 function M.close()
 	if vim.b.womwiki then
 		vim.cmd("quit") -- Close the window and buffer
@@ -342,14 +336,12 @@ function M.close()
 	end
 end
 
--- Edit daily template
+--- Edit or create the daily note template file
 function M.edit_template()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
 		return
 	end
-
-	local utils = require("womwiki.utils")
 
 	-- Always use/create wiki template
 	local wiki_template = config.wikidir .. "/.templates/daily.md"
@@ -383,19 +375,16 @@ function M.edit_template()
 	end
 
 	-- Write template to file
-	file = io.open(expanded_path, "w")
-	if not file then
+	if not utils.write_file(expanded_path, content) then
 		vim.notify("Failed to create template file: " .. wiki_template, vim.log.levels.ERROR)
 		return
 	end
-	file:write(content)
-	file:close()
 
 	-- Open the template file
 	utils.open_wiki_file(wiki_template)
 end
 
--- Cleanup unmodified daily notes
+--- Delete unmodified daily notes that match the template exactly
 function M.cleanup()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -418,11 +407,8 @@ function M.cleanup()
 			local expected_content = template_content:gsub("{{ date }}", date)
 
 			-- Read actual file content
-			local file = io.open(filepath, "r")
-			if file then
-				local actual_content = file:read("*a")
-				file:close()
-
+			local actual_content = utils.read_file(filepath)
+			if actual_content then
 				-- Compare content
 				if actual_content == expected_content then
 					table.insert(unmodified_files, {
@@ -509,9 +495,11 @@ local function date_to_pattern(date)
 	return date:gsub("%-", "%%-")
 end
 
--- Update a single daily note's nav line to the modern wikilink format.
--- Handles: old format (replace), missing nav with date heading (prepend),
--- new format (no-op). Returns true if the file was modified.
+--- Update a single daily note's nav line to the modern wikilink format
+--- Handles: old format (replace), missing nav with date heading (prepend),
+--- new format (no-op).
+--- @param filepath string Absolute path to the daily note
+--- @return boolean Whether the file was modified
 function M.update_file_nav_line(filepath)
 	local file = io.open(filepath, "r")
 	if not file then
@@ -554,7 +542,7 @@ function M.update_file_nav_line(filepath)
 	return true
 end
 
--- Modernize daily note headers to use new nav format
+--- Modernize all daily note headers to use new wikilink nav format
 function M.modernize_headers()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -566,7 +554,7 @@ function M.modernize_headers()
 	local skipped = 0
 
 	for _, filename in ipairs(files) do
-		local date = filename:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		local date = filename:match(patterns.DATE_FILENAME)
 		if date then
 			local filepath = config.dailydir .. "/" .. filename
 			local file = io.open(filepath, "r")

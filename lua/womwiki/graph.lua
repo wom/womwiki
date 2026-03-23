@@ -2,23 +2,41 @@
 -- Link graph visualization and backlinks analysis
 
 local config = require("womwiki.config")
+local patterns = config.patterns
 local utils = require("womwiki.utils")
 
 local M = {}
 
+--- @class womwiki.GraphCache
+--- @field graph table|nil The built link graph
+--- @field last_scan integer Timestamp of last build
+--- @field ttl integer Cache TTL in seconds
+--- @field rebuilding boolean Whether async rebuild is in progress
+M.cache = {
+	graph = nil,
+	last_scan = 0,
+	ttl = 300,
+	rebuilding = false,
+}
+
+--- Invalidate the link graph cache so it rebuilds on next access
+function M.invalidate_cache()
+	M.cache.last_scan = 0
+end
+
 -- Get all markdown links from a file
 local function get_links_from_file(file_path)
 	local links = {}
-	local file = io.open(file_path, "r")
-	if not file then
+	local lines = utils.read_lines(file_path)
+	if not lines then
 		return links
 	end
 
-	for line in file:lines() do
+	for _, line in ipairs(lines) do
 		-- Match [text](link) pattern (standard markdown)
 		for _, link in line:gmatch("%[([^%]]+)%]%(([^%)]+)%)") do
 			-- Skip URLs, only process local links
-			if not link:match("^https?://") then
+			if not link:match(patterns.URL_HTTP) then
 				-- Remove .md extension if present for consistency
 				local clean_link = link:gsub("%.md$", "")
 				table.insert(links, clean_link)
@@ -27,7 +45,7 @@ local function get_links_from_file(file_path)
 
 		-- Match [[link]] or [[link|display]] pattern (wikilinks)
 		if config.config.wikilinks and config.config.wikilinks.enabled then
-			for link_content in line:gmatch("%[%[([^%]]+)%]%]") do
+			for link_content in line:gmatch(patterns.WIKILINK) do
 				-- Parse [[link|display]] format - extract just the link part
 				local link_target = link_content:match("^([^|]+)") or link_content
 				-- Convert spaces based on config
@@ -39,7 +57,6 @@ local function get_links_from_file(file_path)
 			end
 		end
 	end
-	file:close()
 	return links
 end
 
@@ -111,10 +128,45 @@ local function build_link_graph()
 end
 
 -- Expose internal functions for testing
+
+--- Get all markdown links from a file (test helper)
+--- @param file_path string Absolute path to a markdown file
+--- @return string[] List of link targets found in the file
 M._get_links_from_file = get_links_from_file
+
+--- Build link graph data structure from all wiki files (test helper)
+--- @return table Graph keyed by filename with links_to/linked_from arrays
 M._build_link_graph = build_link_graph
 
--- Show backlinks to current file
+--- Get the cached link graph, rebuilding if stale
+--- @return table Graph keyed by filename with links_to/linked_from arrays
+function M.get_link_graph()
+	local now = os.time()
+
+	if now - M.cache.last_scan < M.cache.ttl and M.cache.graph then
+		return M.cache.graph
+	end
+
+	if not M.cache.rebuilding then
+		if not M.cache.graph then
+			-- First load: synchronous
+			M.cache.graph = build_link_graph()
+			M.cache.last_scan = now
+		else
+			-- Stale: return old data, rebuild async
+			M.cache.rebuilding = true
+			vim.schedule(function()
+				M.cache.graph = build_link_graph()
+				M.cache.last_scan = os.time()
+				M.cache.rebuilding = false
+			end)
+		end
+	end
+
+	return M.cache.graph
+end
+
+--- Show backlinks to current file using the available picker
 function M.backlinks()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -188,14 +240,14 @@ function M.backlinks()
 	end
 end
 
--- Create ASCII art graph visualization
+--- Show ASCII art graph visualization in a floating window
 function M.show()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
 		return
 	end
 
-	local graph = build_link_graph()
+	local graph = M.get_link_graph()
 	local current_file = vim.fn.expand("%:t:r")
 
 	-- Build graph display
@@ -448,73 +500,15 @@ function M.show()
 
 		-- Use vim.schedule to ensure picker opens after window closes
 		vim.schedule(function()
-			-- Show all files in picker with fuzzy search (filter as you type)
-			local picker_type, picker = utils.get_picker()
-
-			if not picker then
-				vim.notify("No picker available!", vim.log.levels.ERROR)
-				return
-			end
-
 			local all_files = {}
 			for name, _ in pairs(graph) do
 				table.insert(all_files, name .. ".md")
 			end
 			table.sort(all_files)
 
-			if picker_type == "telescope" then
-				require("telescope.pickers")
-					.new({}, {
-						prompt_title = "Search/Filter Files",
-						finder = require("telescope.finders").new_table({
-							results = all_files,
-						}),
-						sorter = require("telescope.config").values.generic_sorter({}),
-						attach_mappings = function(_, map)
-							map("i", "<CR>", function(prompt_bufnr)
-								local selection = require("telescope.actions.state").get_selected_entry()
-								require("telescope.actions").close(prompt_bufnr)
-								if selection then
-									utils.open_wiki_file(config.wikidir .. "/" .. selection.value)
-								end
-							end)
-							return true
-						end,
-					})
-					:find()
-			elseif picker_type == "mini" then
-				local selected = picker.start({
-					source = { items = all_files, name = "Search/Filter Files" },
-				})
-				if selected then
-					utils.open_wiki_file(config.wikidir .. "/" .. selected)
-				end
-			elseif picker_type == "snacks" then
-				picker.picker.select(all_files, {
-					prompt = "Search/Filter Files",
-					format = function(item)
-						return item
-					end,
-				}, function(selected)
-					if selected then
-						-- Snacks may pass item as string or table
-						local filename = type(selected) == "table" and selected.text or selected
-						utils.open_wiki_file(config.wikidir .. "/" .. filename)
-					end
-				end)
-			elseif picker_type == "fzf" then
-				picker.fzf_exec(all_files, {
-					prompt = "Search/Filter Files> ",
-					actions = {
-						["default"] = function(selected)
-							if selected and selected[1] then
-								local filename = selected[1]
-								utils.open_wiki_file(config.wikidir .. "/" .. filename)
-							end
-						end,
-					},
-				})
-			end
+			utils.picker_select(all_files, { title = "Search/Filter Files" }, function(selected)
+				utils.open_wiki_file(config.wikidir .. "/" .. selected)
+			end)
 		end) -- Close vim.schedule
 	end, keymap_opts)
 
@@ -523,14 +517,6 @@ function M.show()
 
 		-- Use vim.schedule to ensure picker opens after window closes
 		vim.schedule(function()
-			-- Show details for a specific file using fuzzy picker
-			local picker_type, picker = utils.get_picker()
-
-			if not picker then
-				vim.notify("No picker available!", vim.log.levels.ERROR)
-				return
-			end
-
 			-- Helper to show file details in a floating window
 			local function show_file_details(filename)
 				-- Remove .md extension if present
@@ -624,73 +610,14 @@ function M.show()
 			end
 			table.sort(all_files)
 
-			-- Show in picker
-			if picker_type == "telescope" then
-				require("telescope.pickers")
-					.new({}, {
-						prompt_title = "Select File to Expand",
-						finder = require("telescope.finders").new_table({
-							results = all_files,
-						}),
-						sorter = require("telescope.config").values.generic_sorter({}),
-						attach_mappings = function(_, map)
-							map("i", "<CR>", function(prompt_bufnr)
-								local selection = require("telescope.actions.state").get_selected_entry()
-								require("telescope.actions").close(prompt_bufnr)
-								if selection then
-									show_file_details(selection.value)
-								end
-							end)
-							return true
-						end,
-					})
-					:find()
-			elseif picker_type == "mini" then
-				local selected = picker.start({
-					source = { items = all_files, name = "Select File to Expand" },
-				})
-				if selected then
-					show_file_details(selected)
-				end
-			elseif picker_type == "snacks" then
-				picker.picker.select(all_files, {
-					prompt = "Select File to Expand",
-					format = function(item)
-						return item
-					end,
-				}, function(selected)
-					if selected then
-						-- Snacks may pass item as string or table
-						local filename = type(selected) == "table" and selected.text or selected
-						show_file_details(filename)
-					end
-				end)
-			elseif picker_type == "fzf" then
-				picker.fzf_exec(all_files, {
-					prompt = "Select File to Expand> ",
-					actions = {
-						["default"] = function(selected)
-							if selected and selected[1] then
-								vim.schedule(function()
-									show_file_details(selected[1])
-								end)
-							end
-						end,
-					},
-				})
-			end
+			utils.picker_select(all_files, { title = "Select File to Expand" }, function(selected)
+				show_file_details(selected)
+			end)
 		end) -- Close vim.schedule
 	end, keymap_opts)
 
 	vim.keymap.set("n", "h", function()
 		vim.api.nvim_win_close(win, true)
-		-- Show hubs in picker
-		local picker_type, picker = utils.get_picker()
-
-		if not picker then
-			vim.notify("No picker available!", vim.log.levels.ERROR)
-			return
-		end
 
 		if #hubs == 0 then
 			vim.notify("No hub files found (files with 3+ backlinks)", vim.log.levels.WARN)
@@ -702,125 +629,25 @@ function M.show()
 			table.insert(hub_items, hub.name .. ".md")
 		end
 
-		if picker_type == "telescope" then
-			require("telescope.pickers")
-				.new({}, {
-					prompt_title = "Hub Files",
-					finder = require("telescope.finders").new_table({
-						results = hub_items,
-					}),
-					sorter = require("telescope.config").values.generic_sorter({}),
-					attach_mappings = function(_, map)
-						map("i", "<CR>", function(prompt_bufnr)
-							local selection = require("telescope.actions.state").get_selected_entry()
-							require("telescope.actions").close(prompt_bufnr)
-							if selection then
-								utils.open_wiki_file(config.wikidir .. "/" .. selection.value)
-							end
-						end)
-						return true
-					end,
-				})
-				:find()
-		elseif picker_type == "mini" then
-			local selected = picker.start({
-				source = { items = hub_items, name = "Hub Files" },
-			})
-			if selected then
-				utils.open_wiki_file(config.wikidir .. "/" .. selected)
-			end
-		elseif picker_type == "snacks" then
-			picker.picker.select(hub_items, {
-				prompt = "Hub Files",
-				format = function(item)
-					return item
-				end,
-			}, function(selected)
-				if selected then
-					-- Snacks may pass item as string or table
-					local filename = type(selected) == "table" and selected.text or selected
-					utils.open_wiki_file(config.wikidir .. "/" .. filename)
-				end
-			end)
-		elseif picker_type == "fzf" then
-			picker.fzf_exec(hub_items, {
-				prompt = "Hub Files> ",
-				actions = {
-					["default"] = function(selected)
-						if selected and selected[1] then
-							local filename = selected[1]
-							utils.open_wiki_file(config.wikidir .. "/" .. filename)
-						end
-					end,
-				},
-			})
-		end
+		utils.picker_select(hub_items, { title = "Hub Files" }, function(selected)
+			utils.open_wiki_file(config.wikidir .. "/" .. selected)
+		end)
 	end, keymap_opts)
 
 	vim.keymap.set("n", "o", function()
 		vim.api.nvim_win_close(win, true)
-		-- Show orphans in picker
-		local picker_type, picker = utils.get_picker()
-		if picker and #orphans > 0 then
-			local orphan_items = {}
-			for _, orphan in ipairs(orphans) do
-				table.insert(orphan_items, orphan .. ".md")
-			end
-
-			if picker_type == "telescope" then
-				require("telescope.pickers")
-					.new({}, {
-						prompt_title = "Orphan Files",
-						finder = require("telescope.finders").new_table({
-							results = orphan_items,
-						}),
-						sorter = require("telescope.config").values.generic_sorter({}),
-						attach_mappings = function(_, map)
-							map("i", "<CR>", function(prompt_bufnr)
-								local selection = require("telescope.actions.state").get_selected_entry()
-								require("telescope.actions").close(prompt_bufnr)
-								if selection then
-									utils.open_wiki_file(config.wikidir .. "/" .. selection.value)
-								end
-							end)
-							return true
-						end,
-					})
-					:find()
-			elseif picker_type == "mini" then
-				local selected = picker.start({
-					source = { items = orphan_items, name = "Orphan Files" },
-				})
-				if selected then
-					utils.open_wiki_file(config.wikidir .. "/" .. selected)
-				end
-			elseif picker_type == "snacks" then
-				picker.picker.select(orphan_items, {
-					prompt = "Orphan Files",
-					format = function(item)
-						return item
-					end,
-				}, function(selected)
-					if selected then
-						-- Snacks may pass item as string or table
-						local filename = type(selected) == "table" and selected.text or selected
-						utils.open_wiki_file(config.wikidir .. "/" .. filename)
-					end
-				end)
-			elseif picker_type == "fzf" then
-				picker.fzf_exec(orphan_items, {
-					prompt = "Orphan Files> ",
-					actions = {
-						["default"] = function(selected)
-							if selected and selected[1] then
-								local filename = selected[1]
-								utils.open_wiki_file(config.wikidir .. "/" .. filename)
-							end
-						end,
-					},
-				})
-			end
+		if #orphans == 0 then
+			return
 		end
+
+		local orphan_items = {}
+		for _, orphan in ipairs(orphans) do
+			table.insert(orphan_items, orphan .. ".md")
+		end
+
+		utils.picker_select(orphan_items, { title = "Orphan Files" }, function(selected)
+			utils.open_wiki_file(config.wikidir .. "/" .. selected)
+		end)
 	end, keymap_opts)
 end
 

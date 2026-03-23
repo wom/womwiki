@@ -1,5 +1,6 @@
 ---@type vim
 local vim = vim
+local patterns = require("womwiki.config").patterns
 
 vim.opt_local.tabstop = 2
 vim.opt_local.shiftwidth = 2
@@ -79,7 +80,7 @@ local function word_to_link()
 		local bracket_end = start_pos + #text + #url + 3
 		if col >= bracket_start and col < bracket_end then
 			-- Skip URL links — can't convert to wikilink
-			if url:match("^https?://") then
+			if url:match(patterns.URL_HTTP) then
 				vim.notify("Cannot convert URL link to wikilink", vim.log.levels.WARN)
 				return
 			end
@@ -386,7 +387,7 @@ local function follow_markdown_link()
 
 		if col >= bracket_start and col < bracket_end then
 			-- Check if it's a URL
-			if url:match("^https?://") then
+			if url:match(patterns.URL_HTTP) then
 				-- Open URL in browser - handle WSL specially
 				local is_wsl = vim.fn.has("wsl") == 1 or vim.fn.exists("$WSL_DISTRO_NAME") == 1
 

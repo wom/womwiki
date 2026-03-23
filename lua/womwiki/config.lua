@@ -33,6 +33,16 @@
 
 local M = {}
 
+-- Shared regex patterns used across modules (not user-configurable)
+M.patterns = {
+	TAG_INLINE = "#([%w_-]+)",
+	TAG_START = "^#([%w_-]+)",
+	WIKILINK = "%[%[([^%]]+)%]%]",
+	URL_HTTP = "^https?://",
+	DATE_FILENAME = "^(%d%d%d%d%-%d%d%-%d%d)%.md$",
+	HEADING_H1 = "^#%s+(.+)$",
+}
+
 --- @type womwiki.Config
 M.config = {
 	path = os.getenv("HOME") .. "/src/wiki",

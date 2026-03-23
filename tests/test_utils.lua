@@ -102,4 +102,123 @@ picker["auto-detects mini.pick in test environment"] = function()
 	config.config.picker = orig_picker
 end
 
+--------------------------------------------------------------------------------
+-- File I/O helpers
+--------------------------------------------------------------------------------
+
+local eq = expect.equality
+local neq = expect.no_equality
+
+local file_io = new_set()
+T["file_io"] = file_io
+
+-- read_file
+
+file_io["read_file reads file contents"] = function()
+	local tmp = vim.fn.tempname()
+	local f = io.open(tmp, "w")
+	f:write("hello world")
+	f:close()
+	local content, err = utils.read_file(tmp)
+	eq(content, "hello world")
+	eq(err, nil)
+	os.remove(tmp)
+end
+
+file_io["read_file returns nil for missing file"] = function()
+	local content, err = utils.read_file("/tmp/nonexistent_womwiki_test_file")
+	eq(content, nil)
+	neq(err, nil)
+end
+
+-- read_lines
+
+file_io["read_lines reads lines into array"] = function()
+	local tmp = vim.fn.tempname()
+	local f = io.open(tmp, "w")
+	f:write("line1\nline2\nline3\n")
+	f:close()
+	local lines, err = utils.read_lines(tmp)
+	eq(err, nil)
+	eq(#lines, 3)
+	eq(lines[1], "line1")
+	eq(lines[2], "line2")
+	eq(lines[3], "line3")
+	os.remove(tmp)
+end
+
+file_io["read_lines returns nil for missing file"] = function()
+	local lines, err = utils.read_lines("/tmp/nonexistent_womwiki_test_file")
+	eq(lines, nil)
+	neq(err, nil)
+end
+
+file_io["read_lines returns empty table for empty file"] = function()
+	local tmp = vim.fn.tempname()
+	local f = io.open(tmp, "w")
+	f:close()
+	local lines, err = utils.read_lines(tmp)
+	eq(err, nil)
+	eq(#lines, 0)
+	os.remove(tmp)
+end
+
+-- write_file
+
+file_io["write_file writes content"] = function()
+	local tmp = vim.fn.tempname()
+	local ok, err = utils.write_file(tmp, "test content")
+	eq(ok, true)
+	eq(err, nil)
+	local f = io.open(tmp, "r")
+	local content = f:read("*a")
+	f:close()
+	eq(content, "test content")
+	os.remove(tmp)
+end
+
+file_io["write_file overwrites existing content"] = function()
+	local tmp = vim.fn.tempname()
+	utils.write_file(tmp, "old")
+	utils.write_file(tmp, "new")
+	local content = utils.read_file(tmp)
+	eq(content, "new")
+	os.remove(tmp)
+end
+
+file_io["write_file returns false for invalid path"] = function()
+	local ok, err = utils.write_file("/nonexistent_dir/file.txt", "data")
+	eq(ok, false)
+	neq(err, nil)
+end
+
+-- append_file
+
+file_io["append_file appends to existing file"] = function()
+	local tmp = vim.fn.tempname()
+	utils.write_file(tmp, "first\n")
+	local ok, err = utils.append_file(tmp, "second\n")
+	eq(ok, true)
+	eq(err, nil)
+	local content = utils.read_file(tmp)
+	eq(content, "first\nsecond\n")
+	os.remove(tmp)
+end
+
+file_io["append_file creates file if missing"] = function()
+	local tmp = vim.fn.tempname()
+	local ok, err = utils.append_file(tmp, "appended")
+	eq(ok, true)
+	eq(err, nil)
+	local content = utils.read_file(tmp)
+	eq(content, "appended")
+	os.remove(tmp)
+end
+
+file_io["append_file returns false for invalid path"] = function()
+	local ok, err = utils.append_file("/nonexistent_dir/file.txt", "data")
+	eq(ok, false)
+	neq(err, nil)
+end
+
 return T

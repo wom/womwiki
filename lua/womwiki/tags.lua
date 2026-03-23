@@ -2,6 +2,7 @@
 -- Tags and frontmatter support: parse, index, browse, filter
 
 local config = require("womwiki.config")
+local patterns = config.patterns
 local utils = require("womwiki.utils")
 
 local M = {}
@@ -29,25 +30,22 @@ M.cache = {
 --- @param filepath string Absolute path to file
 --- @return table|nil Parsed frontmatter {tags = {...}} or nil
 function M.parse_frontmatter(filepath)
-	local f = io.open(filepath, "r")
-	if not f then
+	local lines = utils.read_lines(filepath)
+	if not lines then
 		return nil
 	end
 
-	local first_line = f:read("*l")
-	if not first_line or first_line ~= "---" then
-		f:close()
+	if #lines == 0 or lines[1] ~= "---" then
 		return nil
 	end
 
 	local yaml_lines = {}
-	for line in f:lines() do
-		if line == "---" then
+	for i = 2, #lines do
+		if lines[i] == "---" then
 			break
 		end
-		table.insert(yaml_lines, line)
+		table.insert(yaml_lines, lines[i])
 	end
-	f:close()
 
 	-- Parse tags from YAML
 	local result = { tags = {} }
@@ -99,36 +97,39 @@ function M.get_inline_tags(filepath)
 		return {}
 	end
 
-	local pattern = config.config.tags.inline_pattern or "#([%w_-]+)"
+	local pattern = config.config.tags.inline_pattern or patterns.TAG_INLINE
 	local tags = {}
 	local seen = {}
 
-	local f = io.open(filepath, "r")
-	if not f then
+	local lines = utils.read_lines(filepath)
+	if not lines or #lines == 0 then
 		return tags
 	end
 
+	local start_idx
 	-- Skip frontmatter if present
-	local first_line = f:read("*l")
-	local in_frontmatter = first_line == "---"
-	if in_frontmatter then
-		for line in f:lines() do
-			if line == "---" then
+	if lines[1] == "---" then
+		start_idx = #lines + 1
+		for i = 2, #lines do
+			if lines[i] == "---" then
+				start_idx = i + 1
 				break
 			end
 		end
-	elseif first_line then
+	else
 		-- Process first line if not frontmatter
-		for tag in strip_inline_code(first_line):gmatch(pattern) do
+		for tag in strip_inline_code(lines[1]):gmatch(pattern) do
 			if not seen[tag] then
 				seen[tag] = true
 				table.insert(tags, tag)
 			end
 		end
+		start_idx = 2
 	end
 
 	-- Process rest of file
-	for line in f:lines() do
+	for i = start_idx, #lines do
+		local line = lines[i]
 		-- Skip code blocks
 		if not line:match("^```") then
 			for tag in strip_inline_code(line):gmatch(pattern) do
@@ -140,7 +141,6 @@ function M.get_inline_tags(filepath)
 		end
 	end
 
-	f:close()
 	return tags
 end
 
@@ -231,31 +231,27 @@ function M.read_file_metadata(filepath)
 	local result = { title = nil, tags = {} }
 	local seen = {}
 
-	local f = io.open(filepath, "r")
-	if not f then
+	local lines = utils.read_lines(filepath)
+	if not lines or #lines == 0 then
 		return result
 	end
 
-	local inline_pattern = (config.config.tags and config.config.tags.inline_pattern) or "#([%w_-]+)"
+	local inline_pattern = (config.config.tags and config.config.tags.inline_pattern) or patterns.TAG_INLINE
 	local use_frontmatter = not config.config.tags or config.config.tags.use_frontmatter ~= false
 	local tags_enabled = not config.config.tags or config.config.tags.enabled ~= false
 	local in_code_block = false
 
-	-- Read first line
-	local first_line = f:read("*l")
-	if not first_line then
-		f:close()
-		return result
-	end
-
+	local start_idx
 	-- Parse frontmatter if present
-	if first_line == "---" and use_frontmatter then
+	if lines[1] == "---" and use_frontmatter then
 		local yaml_lines = {}
-		for line in f:lines() do
-			if line == "---" then
+		start_idx = #lines + 1
+		for i = 2, #lines do
+			if lines[i] == "---" then
+				start_idx = i + 1
 				break
 			end
-			table.insert(yaml_lines, line)
+			table.insert(yaml_lines, lines[i])
 		end
 		local fm_tags = parse_frontmatter_tags(yaml_lines)
 		for _, tag in ipairs(fm_tags) do
@@ -266,25 +262,27 @@ function M.read_file_metadata(filepath)
 		end
 	else
 		-- First line is content — check for title and inline tags
-		local h1 = first_line:match("^#%s+(.+)$")
+		local h1 = lines[1]:match(patterns.HEADING_H1)
 		if h1 then
 			result.title = h1
 		end
 		if tags_enabled then
-			for tag in strip_inline_code(first_line):gmatch(inline_pattern) do
+			for tag in strip_inline_code(lines[1]):gmatch(inline_pattern) do
 				if not seen[tag] then
 					seen[tag] = true
 					table.insert(result.tags, tag)
 				end
 			end
 		end
+		start_idx = 2
 	end
 
 	-- Process remaining lines
-	for line in f:lines() do
+	for i = start_idx, #lines do
+		local line = lines[i]
 		-- Extract title from first H1 if we don't have one yet
 		if not result.title then
-			local h1 = line:match("^#%s+(.+)$")
+			local h1 = line:match(patterns.HEADING_H1)
 			if h1 then
 				result.title = h1
 			end
@@ -306,7 +304,6 @@ function M.read_file_metadata(filepath)
 		end
 	end
 
-	f:close()
 	return result
 end
 
@@ -387,7 +384,7 @@ function M.build_tag_index_rg(callback)
 				local all_tags_set = {}
 				for _, line in ipairs(stdout_data) do
 					if line ~= "" then
-						local tag = line:match("^#([%w_-]+)")
+						local tag = line:match(patterns.TAG_START)
 						if tag then
 							all_tags_set[tag] = true
 						end
@@ -482,8 +479,8 @@ function M.list_tags()
 		return
 	end
 
-	local picker_type, picker = utils.get_picker()
-	if not picker then
+	local _, has_picker = utils.get_picker()
+	if not has_picker then
 		-- Fallback: show in floating window
 		M.list_tags_float(all_tags, index)
 		return
@@ -500,84 +497,17 @@ function M.list_tags()
 		})
 	end
 
-	if picker_type == "telescope" then
-		require("telescope.pickers")
-			.new({}, {
-				prompt_title = "Tags",
-				finder = require("telescope.finders").new_table({
-					results = items,
-					entry_maker = function(item)
-						return {
-							value = item,
-							display = item.display,
-							ordinal = item.tag,
-						}
-					end,
-				}),
-				sorter = require("telescope.config").values.generic_sorter({}),
-				attach_mappings = function(_, map)
-					map("i", "<CR>", function(prompt_bufnr)
-						local selection = require("telescope.actions.state").get_selected_entry()
-						require("telescope.actions").close(prompt_bufnr)
-						if selection then
-							M.filter_by_tag(selection.value.tag)
-						end
-					end)
-					return true
-				end,
-			})
-			:find()
-	elseif picker_type == "fzf" then
-		local display_items = vim.tbl_map(function(item)
-			return item.display
-		end, items)
-		picker.fzf_exec(display_items, {
-			prompt = "Tags> ",
-			actions = {
-				["default"] = function(selected)
-					if selected and selected[1] then
-						local tag = selected[1]:match("^#([%w_-]+)")
-						if not tag then
-							vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
-							return
-						end
-						M.filter_by_tag(tag)
-					end
-				end,
-			},
-		})
-	elseif picker_type == "mini" then
-		local display_items = vim.tbl_map(function(item)
-			return item.display
-		end, items)
-		picker.start({
-			source = { items = display_items, name = "Tags" },
-			choose = function(item)
-				local tag = item:match("^#([%w_-]+)")
-				if not tag then
-					vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
-					return
-				end
-				M.filter_by_tag(tag)
-			end,
-		})
-	elseif picker_type == "snacks" then
-		local display_items = vim.tbl_map(function(item)
-			return item.display
-		end, items)
-		picker.picker.pick({
-			source = display_items,
-			prompt = "Tags",
-			confirm = function(item)
-				local tag = item:match("^#([%w_-]+)")
-				if not tag then
-					vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
-					return
-				end
-				M.filter_by_tag(tag)
-			end,
-		})
-	end
+	local display_items = vim.tbl_map(function(item)
+		return item.display
+	end, items)
+	utils.picker_select(display_items, { title = "Tags" }, function(selected)
+		local tag = selected:match(patterns.TAG_START)
+		if not tag then
+			vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
+			return
+		end
+		M.filter_by_tag(tag)
+	end)
 end
 
 --- Fallback: show tags in floating window
@@ -646,106 +576,22 @@ function M.filter_by_tag(tag)
 		return
 	end
 
-	local picker_type, picker = utils.get_picker()
-	if not picker then
-		-- Fallback: open first file
-		utils.open_wiki_file(files[1].full_path)
-		return
-	end
-
-	if picker_type == "telescope" then
-		require("telescope.pickers")
-			.new({}, {
-				prompt_title = "Files tagged #" .. tag,
-				finder = require("telescope.finders").new_table({
-					results = files,
-					entry_maker = function(file)
-						return {
-							value = file,
-							display = file.path .. " - " .. file.title,
-							ordinal = file.path .. " " .. file.title,
-						}
-					end,
-				}),
-				sorter = require("telescope.config").values.generic_sorter({}),
-				attach_mappings = function(_, map)
-					map("i", "<CR>", function(prompt_bufnr)
-						local selection = require("telescope.actions.state").get_selected_entry()
-						require("telescope.actions").close(prompt_bufnr)
-						if selection then
-							utils.open_wiki_file(selection.value.full_path)
-						end
-					end)
-					return true
-				end,
-			})
-			:find()
-	elseif picker_type == "fzf" then
-		local display_items = vim.tbl_map(function(file)
-			return file.path .. " - " .. file.title
-		end, files)
-		picker.fzf_exec(display_items, {
-			prompt = "Files tagged #" .. tag .. "> ",
-			actions = {
-				["default"] = function(selected)
-					if selected and selected[1] then
-						local path = selected[1]:match("^([^%s]+)")
-						if not path then
-							vim.notify("Failed to parse selection", vim.log.levels.WARN)
-							return
-						end
-						for _, file in ipairs(files) do
-							if file.path == path then
-								utils.open_wiki_file(file.full_path)
-								break
-							end
-						end
-					end
-				end,
-			},
-		})
-	elseif picker_type == "mini" then
-		local display_items = vim.tbl_map(function(file)
-			return file.path .. " - " .. file.title
-		end, files)
-		picker.start({
-			source = { items = display_items, name = "Files tagged #" .. tag },
-			choose = function(item)
-				local path = item:match("^([^%s]+)")
-				if not path then
-					vim.notify("Failed to parse selection", vim.log.levels.WARN)
-					return
-				end
-				for _, file in ipairs(files) do
-					if file.path == path then
-						utils.open_wiki_file(file.full_path)
-						break
-					end
-				end
-			end,
-		})
-	elseif picker_type == "snacks" then
-		local display_items = vim.tbl_map(function(file)
-			return file.path .. " - " .. file.title
-		end, files)
-		picker.picker.pick({
-			source = display_items,
-			prompt = "Files tagged #" .. tag,
-			confirm = function(item)
-				local path = item:match("^([^%s]+)")
-				if not path then
-					vim.notify("Failed to parse selection", vim.log.levels.WARN)
-					return
-				end
-				for _, file in ipairs(files) do
-					if file.path == path then
-						utils.open_wiki_file(file.full_path)
-						break
-					end
-				end
-			end,
-		})
-	end
+	local display_items = vim.tbl_map(function(file)
+		return file.path .. " - " .. file.title
+	end, files)
+	utils.picker_select(display_items, { title = "Files tagged #" .. tag }, function(selected)
+		local path = selected:match("^([^%s]+)")
+		if not path then
+			vim.notify("Failed to parse selection", vim.log.levels.WARN)
+			return
+		end
+		for _, file in ipairs(files) do
+			if file.path == path then
+				utils.open_wiki_file(file.full_path)
+				break
+			end
+		end
+	end)
 end
 
 --- Add tag to current file
@@ -769,17 +615,11 @@ function M.add_tag(tag)
 	end
 
 	-- Check if file has frontmatter
-	local f = io.open(filepath, "r")
-	if not f then
+	local lines = utils.read_lines(filepath)
+	if not lines then
 		vim.notify("Cannot read file", vim.log.levels.ERROR)
 		return
 	end
-
-	local lines = {}
-	for line in f:lines() do
-		table.insert(lines, line)
-	end
-	f:close()
 
 	local has_frontmatter = #lines > 0 and lines[1] == "---"
 
@@ -835,13 +675,10 @@ function M.add_tag(tag)
 	end
 
 	-- Write back
-	f = io.open(filepath, "w")
-	if not f then
+	if not utils.write_file(filepath, table.concat(lines, "\n")) then
 		vim.notify("Cannot write file", vim.log.levels.ERROR)
 		return
 	end
-	f:write(table.concat(lines, "\n"))
-	f:close()
 
 	-- Reload buffer
 	vim.cmd("edit!")

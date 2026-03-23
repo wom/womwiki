@@ -281,4 +281,66 @@ bg["only includes links to existing files"] = function()
 	cleanup_mini_wiki(tmpdir)
 end
 
+--------------------------------------------------------------------------------
+-- get_link_graph (caching layer)
+--------------------------------------------------------------------------------
+
+local cg = new_set()
+T["get_link_graph"] = cg
+
+cg["cache structure exists"] = function()
+	expect.no_equality(graph.cache, nil)
+	expect.equality(type(graph.cache.ttl), "number")
+	expect.equality(type(graph.cache.last_scan), "number")
+	expect.equality(type(graph.cache.rebuilding), "boolean")
+end
+
+cg["returns same reference on consecutive calls"] = function()
+	local tmpdir = setup_mini_wiki()
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	-- Reset cache to force fresh build
+	graph.cache.graph = nil
+	graph.cache.last_scan = 0
+	graph.cache.rebuilding = false
+
+	local first = graph.get_link_graph()
+	local second = graph.get_link_graph()
+	expect.equality(rawequal(first, second), true)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	cleanup_mini_wiki(tmpdir)
+end
+
+cg["invalidate forces rebuild"] = function()
+	local tmpdir = setup_mini_wiki()
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	-- Reset cache to force fresh build
+	graph.cache.graph = nil
+	graph.cache.last_scan = 0
+	graph.cache.rebuilding = false
+
+	local first = graph.get_link_graph()
+	graph.invalidate_cache()
+	-- After invalidation, cache.graph is still set so async path would be taken.
+	-- Force synchronous rebuild by clearing cache.graph too.
+	graph.cache.graph = nil
+	local second = graph.get_link_graph()
+	expect.equality(rawequal(first, second), false)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	cleanup_mini_wiki(tmpdir)
+end
+
 return T

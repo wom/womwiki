@@ -45,6 +45,7 @@ function M.setup(opts)
 			if config.wikidir and vim.startswith(bufpath, config.wikidir) then
 				files.invalidate_cache()
 				tags.invalidate_cache()
+				graph.invalidate_cache()
 			end
 		end,
 	})

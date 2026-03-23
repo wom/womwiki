@@ -2,6 +2,7 @@
 -- File navigation: wiki, dailies, recent, search, create
 
 local config = require("womwiki.config")
+local patterns = config.patterns
 local utils = require("womwiki.utils")
 
 local M = {}
@@ -18,7 +19,7 @@ function M.invalidate_cache()
 	M.cache.last_scan = 0
 end
 
--- Open picker to find files in the wiki directory
+--- Open picker to find files in the wiki directory
 function M.wiki()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -41,7 +42,7 @@ function M.wiki()
 	end
 end
 
--- Open picker to find files in the daily directory
+--- Open picker to find files in the daily directory
 function M.dailies()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
@@ -64,7 +65,8 @@ function M.dailies()
 	end
 end
 
--- Get list of subdirectories in wiki directory
+--- Get list of subdirectories in wiki directory
+--- @return string[] Absolute paths including the root wiki directory
 function M.get_wiki_folders()
 	if not config.is_valid() then
 		return {}
@@ -86,7 +88,7 @@ function M.get_wiki_folders()
 	return folders
 end
 
--- Create a new wiki file
+--- Create a new wiki file via interactive folder/name selection
 function M.create()
 	local folders = M.get_wiki_folders()
 	local folder_names = {}
@@ -119,10 +121,8 @@ function M.create()
 						utils.open_wiki_file(full_path)
 					else
 						-- Create new file
-						local new_file = io.open(full_path, "w")
-						if new_file then
-							new_file:write("# " .. filename:gsub("%.md$", "") .. "\n\n")
-							new_file:close()
+						local ok = utils.write_file(full_path, "# " .. filename:gsub("%.md$", "") .. "\n\n")
+						if ok then
 							utils.open_wiki_file(full_path)
 						else
 							vim.notify("Failed to create file: " .. full_path, vim.log.levels.ERROR)
@@ -134,15 +134,10 @@ function M.create()
 	end)
 end
 
--- Open recent wiki files using available picker
+--- Open recent wiki files using the available picker
 function M.recent()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
-		return
-	end
-
-	local picker_type, picker = utils.get_picker()
-	if not picker then
 		return
 	end
 
@@ -164,85 +159,24 @@ function M.recent()
 		return
 	end
 
-	if picker_type == "telescope" then
-		require("telescope.pickers")
-			.new({}, {
-				prompt_title = "Recent Wiki Files",
-				finder = require("telescope.finders").new_table({
-					results = wiki_files,
-				}),
-				sorter = require("telescope.config").values.generic_sorter({}),
-				attach_mappings = function(_, map)
-					map("i", "<CR>", function(prompt_bufnr)
-						local selection = require("telescope.actions.state").get_selected_entry()
-						require("telescope.actions").close(prompt_bufnr)
-						if selection then
-							utils.open_wiki_file(selection.value)
-						end
-					end)
-					return true
-				end,
-			})
-			:find()
-	elseif picker_type == "mini" then
-		picker.start({
-			source = { items = wiki_files, name = "Recent Wiki Files" },
-			choose = function(item)
-				utils.open_wiki_file(item)
-			end,
-		})
-	elseif picker_type == "snacks" then
-		picker.picker.pick({
-			source = wiki_files,
-			prompt = "Recent Wiki Files",
-			format = function(item)
-				return item
-			end,
-			confirm = function(item)
-				utils.open_wiki_file(item)
-			end,
-		})
-	elseif picker_type == "fzf" then
-		picker.fzf_exec(wiki_files, {
-			prompt = "Recent Wiki Files> ",
-			actions = {
-				["default"] = function(selected)
-					if selected and selected[1] then
-						utils.open_wiki_file(selected[1])
-					end
-				end,
-			},
-			fzf_opts = { ["--sort"] = true },
-		})
-	end
+	utils.picker_select(wiki_files, { title = "Recent Wiki Files" }, function(selected)
+		utils.open_wiki_file(selected)
+	end)
 end
 
--- Search through wiki files using available picker
+--- Search through wiki files using the available picker
 function M.search()
 	if not config.is_valid() then
 		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
 		return
 	end
 
-	local picker_type, picker = utils.get_picker()
-	if not picker then
-		return
-	end
-
-	if picker_type == "telescope" then
-		picker.live_grep({ cwd = config.wikidir })
-	elseif picker_type == "mini" then
-		-- Note: mini.pick doesn't have live_grep built-in, using grep builtin instead
-		picker.builtin.grep_live({}, { source = { cwd = config.wikidir } })
-	elseif picker_type == "snacks" then
-		picker.picker.grep({ cwd = config.wikidir })
-	elseif picker_type == "fzf" then
-		picker.live_grep({ cwd = config.wikidir })
-	end
+	utils.picker_grep({ cwd = config.wikidir })
 end
 
--- Get all wiki files with their titles (used by completion)
--- Results are cached with a TTL to avoid rescanning on every keystroke
+--- Get all wiki files with their titles (used by completion)
+--- Results are cached with a TTL to avoid rescanning on every keystroke
+--- @return table[] Array of {path: string, title: string, full_path: string}
 function M.get_wiki_files()
 	if not config.is_valid() then
 		return {}
@@ -275,16 +209,15 @@ function M.get_wiki_files()
 				scan_dir(full_path, rel_path)
 			elseif type == "file" and name:match("%.md$") then
 				local title = nil
-				local f = io.open(full_path, "r")
-				if f then
-					for line in f:lines() do
-						local h1 = line:match("^#%s+(.+)$")
+				local file_lines = utils.read_lines(full_path)
+				if file_lines then
+					for _, line in ipairs(file_lines) do
+						local h1 = line:match(patterns.HEADING_H1)
 						if h1 then
 							title = h1
 							break
 						end
 					end
-					f:close()
 				end
 
 				table.insert(files, {
@@ -302,15 +235,17 @@ function M.get_wiki_files()
 	return files
 end
 
--- Get headings from a file
+--- Get headings from a markdown file
+--- @param filepath string Absolute path to the markdown file
+--- @return table[] Array of {text: string, slug: string, level: integer}
 function M.get_file_headings(filepath)
 	local headings = {}
-	local f = io.open(filepath, "r")
-	if not f then
+	local lines = utils.read_lines(filepath)
+	if not lines then
 		return headings
 	end
 
-	for line in f:lines() do
+	for _, line in ipairs(lines) do
 		local level, text = line:match("^(#+)%s+(.+)$")
 		if level and text then
 			local slug =
@@ -323,7 +258,6 @@ function M.get_file_headings(filepath)
 		end
 	end
 
-	f:close()
 	return headings
 end
 
