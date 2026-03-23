@@ -20,6 +20,39 @@ local function get_location_link()
 	return string.format("[%s:%d](%s#L%d)", filename, line, bufname, line)
 end
 
+-- Format a capture entry from text and config options
+function M._format_entry(text, inbox_config)
+	local datetime = os.date(inbox_config.datetime_format)
+	-- Escape % in replacement strings for gsub
+	local safe_datetime = datetime:gsub("%%", "%%%%")
+	local safe_text = text:gsub("%%", "%%%%")
+	return inbox_config.format:gsub("{{ datetime }}", safe_datetime):gsub("{{ text }}", safe_text)
+end
+
+-- Append entry to inbox file, creating with header if needed
+function M._append_to_inbox(entry, expanded_path)
+	-- Check if file already exists
+	local exists = io.open(expanded_path, "r")
+	if exists then
+		exists:close()
+		local file = io.open(expanded_path, "a")
+		if not file then
+			return false, "Failed to open inbox"
+		end
+		file:write(entry .. "\n")
+		file:close()
+	else
+		local file = io.open(expanded_path, "w")
+		if not file then
+			return false, "Failed to create inbox"
+		end
+		file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+		file:write(entry .. "\n")
+		file:close()
+	end
+	return true
+end
+
 -- Quick Capture: append a thought to inbox without leaving current context
 function M.capture(text, include_location)
 	local inbox_path = config.wikidir .. "/" .. config.config.inbox.file
@@ -27,8 +60,7 @@ function M.capture(text, include_location)
 
 	-- If text provided directly, use it; otherwise prompt
 	if text and text ~= "" then
-		local datetime = os.date(config.config.inbox.datetime_format)
-		local entry = config.config.inbox.format:gsub("{{ datetime }}", datetime):gsub("{{ text }}", text)
+		local entry = M._format_entry(text, config.config.inbox)
 
 		-- Append location link if requested
 		if include_location then
@@ -39,18 +71,11 @@ function M.capture(text, include_location)
 		end
 
 		-- Append to inbox file
-		local file = io.open(expanded_path, "a")
-		if not file then
-			-- File doesn't exist, create with header
-			file = io.open(expanded_path, "w")
-			if not file then
-				vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
-				return
-			end
-			file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+		local ok, err = M._append_to_inbox(entry, expanded_path)
+		if not ok then
+			vim.notify(err .. ": " .. inbox_path, vim.log.levels.ERROR)
+			return
 		end
-		file:write(entry .. "\n")
-		file:close()
 		vim.notify("📥 Captured to inbox", vim.log.levels.INFO)
 	else
 		-- Prompt for input - capture location now before async prompt
@@ -58,23 +83,16 @@ function M.capture(text, include_location)
 		local prompt = location and "📥 Capture (+ location): " or "📥 Quick capture: "
 		vim.ui.input({ prompt = prompt }, function(input)
 			if input and input ~= "" then
-				local datetime = os.date(config.config.inbox.datetime_format)
-				local entry = config.config.inbox.format:gsub("{{ datetime }}", datetime):gsub("{{ text }}", input)
+				local entry = M._format_entry(input, config.config.inbox)
 				if location then
 					entry = entry .. " " .. location
 				end
 
-				local file = io.open(expanded_path, "a")
-				if not file then
-					file = io.open(expanded_path, "w")
-					if not file then
-						vim.notify("Failed to create inbox: " .. inbox_path, vim.log.levels.ERROR)
-						return
-					end
-					file:write("# Inbox\n\nQuick captures and fleeting thoughts.\n\n")
+				local ok, err = M._append_to_inbox(entry, expanded_path)
+				if not ok then
+					vim.notify(err .. ": " .. inbox_path, vim.log.levels.ERROR)
+					return
 				end
-				file:write(entry .. "\n")
-				file:close()
 				vim.notify("📥 Captured to inbox" .. (location and " (with location)" or ""), vim.log.levels.INFO)
 			end
 		end)

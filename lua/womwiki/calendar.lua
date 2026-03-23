@@ -5,6 +5,15 @@ local daily = require("womwiki.daily")
 
 local M = {}
 
+-- Pure date helpers (exported for testing)
+function M._days_in_month(year, month)
+	return os.date("*t", os.time({ year = year, month = month + 1, day = 0 })).day
+end
+
+function M._first_day_of_month(year, month)
+	return os.date("*t", os.time({ year = year, month = month, day = 1 })).wday
+end
+
 -- Show calendar popup for navigating daily notes
 function M.show()
 	local current_year = tonumber(os.date("%Y"))
@@ -12,11 +21,11 @@ function M.show()
 	local current_day = tonumber(os.date("%d"))
 
 	local function days_in_month(year, month)
-		return os.date("*t", os.time({ year = year, month = month + 1, day = 0 })).day
+		return M._days_in_month(year, month)
 	end
 
 	local function first_day_of_month(year, month)
-		return os.date("*t", os.time({ year = year, month = month, day = 1 })).wday
+		return M._first_day_of_month(year, month)
 	end
 
 	local function get_existing_dailies()

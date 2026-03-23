@@ -110,6 +110,10 @@ local function build_link_graph()
 	return graph
 end
 
+-- Expose internal functions for testing
+M._get_links_from_file = get_links_from_file
+M._build_link_graph = build_link_graph
+
 -- Show backlinks to current file
 function M.backlinks()
 	if not config.is_valid() then
