@@ -150,4 +150,100 @@ mark["returns false for nonexistent file"] = function()
 	expect.equality(ok, false)
 end
 
+--------------------------------------------------------------------------------
+-- update_file_nav_line
+--------------------------------------------------------------------------------
+
+local nav = new_set()
+T["update_file_nav_line"] = nav
+
+-- Helper: copy fixture to temp with a daily-note filename (YYYY-MM-DD.md)
+local function copy_to_daily_temp(src)
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local tmpfile = tmpdir .. "/2026-03-20.md"
+	local f_in = io.open(src, "r")
+	if not f_in then
+		return nil
+	end
+	local content = f_in:read("*a")
+	f_in:close()
+	local f_out = io.open(tmpfile, "w")
+	if not f_out then
+		return nil
+	end
+	f_out:write(content)
+	f_out:close()
+	return tmpfile
+end
+
+nav["replaces old format with new"] = function()
+	local tmp = copy_to_daily_temp(fixtures .. "/daily_old_nav.md")
+	local changed = daily.update_file_nav_line(tmp)
+	expect.equality(changed, true)
+
+	local content = read_file(tmp)
+	-- First line should now be new wikilink format
+	local first_line = content:match("^([^\n]+)")
+	expect.equality(first_line, "<!-- [[« Prev]] · [[Next »]] -->")
+	-- Date heading should still be present
+	expect.no_equality(content:find("# 2026%-03%-20"), nil)
+	os.remove(tmp)
+end
+
+nav["leaves new format unchanged"] = function()
+	local tmp = copy_to_daily_temp(fixtures .. "/daily_new_nav.md")
+	local original = read_file(tmp)
+	local changed = daily.update_file_nav_line(tmp)
+	expect.equality(changed, false)
+
+	local after = read_file(tmp)
+	expect.equality(original, after)
+	os.remove(tmp)
+end
+
+nav["prepends nav line when missing"] = function()
+	local tmp = copy_to_daily_temp(fixtures .. "/daily_no_nav.md")
+	local changed = daily.update_file_nav_line(tmp)
+	expect.equality(changed, true)
+
+	local content = read_file(tmp)
+	local first_line = content:match("^([^\n]+)")
+	expect.equality(first_line, "<!-- [[« Prev]] · [[Next »]] -->")
+	-- Date heading should be on line 2
+	local second_line = content:match("^[^\n]+\n([^\n]+)")
+	expect.equality(second_line, "# 2026-03-20")
+	os.remove(tmp)
+end
+
+nav["returns false for nonexistent file"] = function()
+	local changed = daily.update_file_nav_line("/tmp/does_not_exist_" .. os.time() .. ".md")
+	expect.equality(changed, false)
+end
+
+nav["returns false for empty file"] = function()
+	local tmp = copy_to_daily_temp(fixtures .. "/empty.md")
+	local changed = daily.update_file_nav_line(tmp)
+	expect.equality(changed, false)
+	os.remove(tmp)
+end
+
+nav["skips file with unrecognized first line"] = function()
+	-- A file whose first line is neither nav format nor date heading
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local tmpfile = tmpdir .. "/2026-03-20.md"
+	local f = io.open(tmpfile, "w")
+	f:write("---\ntitle: Some note\n---\n# 2026-03-20\n")
+	f:close()
+
+	local changed = daily.update_file_nav_line(tmpfile)
+	expect.equality(changed, false)
+
+	-- Content should be unchanged
+	local content = read_file(tmpfile)
+	expect.equality(content:match("^([^\n]+)"), "---")
+	os.remove(tmpfile)
+end
+
 return T

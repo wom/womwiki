@@ -20,6 +20,11 @@ end
 
 -- Open picker to find files in the wiki directory
 function M.wiki()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local picker_type, picker = utils.get_picker()
 	if not picker then
 		return
@@ -38,14 +43,13 @@ end
 
 -- Open picker to find files in the daily directory
 function M.dailies()
-	local picker_type, picker = utils.get_picker()
-	if not picker then
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
 		return
 	end
 
-	-- Ensure dailydir is set
-	if not config.dailydir or config.dailydir == "" then
-		vim.notify("Daily directory not configured", vim.log.levels.ERROR)
+	local picker_type, picker = utils.get_picker()
+	if not picker then
 		return
 	end
 
@@ -62,6 +66,10 @@ end
 
 -- Get list of subdirectories in wiki directory
 function M.get_wiki_folders()
+	if not config.is_valid() then
+		return {}
+	end
+
 	local folders = { config.wikidir } -- Always include root wiki directory
 	local handle = vim.uv.fs_scandir(config.wikidir)
 	if handle then
@@ -128,6 +136,11 @@ end
 
 -- Open recent wiki files using available picker
 function M.recent()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local picker_type, picker = utils.get_picker()
 	if not picker then
 		return
@@ -206,6 +219,11 @@ end
 
 -- Search through wiki files using available picker
 function M.search()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local picker_type, picker = utils.get_picker()
 	if not picker then
 		return
@@ -226,7 +244,7 @@ end
 -- Get all wiki files with their titles (used by completion)
 -- Results are cached with a TTL to avoid rescanning on every keystroke
 function M.get_wiki_files()
-	if not config.wikidir then
+	if not config.is_valid() then
 		return {}
 	end
 

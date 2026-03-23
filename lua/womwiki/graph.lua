@@ -112,6 +112,11 @@ end
 
 -- Show backlinks to current file
 function M.backlinks()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local current_file = vim.fn.expand("%:t:r")
 	if current_file == "" then
 		vim.notify("Not in a wiki file", vim.log.levels.WARN)
@@ -181,6 +186,11 @@ end
 
 -- Create ASCII art graph visualization
 function M.show()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local graph = build_link_graph()
 	local current_file = vim.fn.expand("%:t:r")
 

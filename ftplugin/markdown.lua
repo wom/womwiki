@@ -105,8 +105,8 @@ local function word_to_link()
 		local bracket_end = start_pos + #content + 3
 		if col >= bracket_start and col < bracket_end then
 			-- Convert wikilink → markdown link: [[page]] or [[page|display]] → [display](page.md)
-			local link_part = content:match("^([^|]+)") or content
-			local display = content:match("^[^|]+|(.+)$") or link_part
+			local link_part = vim.trim(content:match("^([^|]+)") or content)
+			local display = vim.trim(content:match("^[^|]+|(.+)$") or link_part)
 			local file_path = ensure_md_extension(link_part)
 			local replacement = "[" .. display .. "](" .. file_path .. ")"
 			local new_line = line:sub(1, bracket_start) .. replacement .. line:sub(bracket_end + 1)
@@ -305,7 +305,9 @@ local function follow_markdown_link()
 				-- Parse [[link|display]] format
 				local link_target, _ = link_content:match("^([^|]+)|(.+)$")
 				if not link_target then
-					link_target = link_content
+					link_target = vim.trim(link_content)
+				else
+					link_target = vim.trim(link_target)
 				end
 
 				-- Handle special navigation links for daily notes

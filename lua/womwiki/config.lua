@@ -71,8 +71,31 @@ M.dailydir = nil
 
 function M.update_paths()
 	local symlink_path = vim.fn.expand(M.config.path)
-	M.wikidir = vim.uv.fs_realpath(symlink_path) or symlink_path
+	local resolved = vim.uv.fs_realpath(symlink_path)
+
+	if resolved then
+		M.wikidir = resolved
+	elseif vim.uv.fs_stat(symlink_path) then
+		-- Path exists but realpath failed (e.g., broken symlink intermediate)
+		M.wikidir = symlink_path
+	else
+		M.wikidir = nil
+		M.dailydir = nil
+		vim.notify("womwiki: wiki directory does not exist: " .. symlink_path, vim.log.levels.ERROR)
+		return
+	end
+
 	M.dailydir = M.wikidir .. "/daily"
+end
+
+--- Returns true when wikidir is set and points to an existing directory.
+--- @return boolean
+function M.is_valid()
+	if not M.wikidir then
+		return false
+	end
+	local stat = vim.uv.fs_stat(M.wikidir)
+	return stat ~= nil and stat.type == "directory"
 end
 
 --- @param opts womwiki.Config.Partial?

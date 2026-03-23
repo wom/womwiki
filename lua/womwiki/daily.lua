@@ -130,9 +130,15 @@ end
 
 -- Navigate to previous daily note
 function M.prev()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local target_date = M.get_adjacent_daily(-1)
 	if target_date then
 		local filepath = config.dailydir .. "/" .. target_date .. ".md"
+		M.update_file_nav_line(vim.fn.expand(filepath))
 		vim.cmd("edit " .. vim.fn.fnameescape(filepath))
 		M.setup_daily_buffer()
 	else
@@ -142,9 +148,15 @@ end
 
 -- Navigate to next daily note
 function M.next()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local target_date = M.get_adjacent_daily(1)
 	if target_date then
 		local filepath = config.dailydir .. "/" .. target_date .. ".md"
+		M.update_file_nav_line(vim.fn.expand(filepath))
 		vim.cmd("edit " .. vim.fn.fnameescape(filepath))
 		M.setup_daily_buffer()
 	else
@@ -253,6 +265,11 @@ end
 
 -- Open or create a daily file with a specified offset in days
 function M.open(days_offset)
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	days_offset = days_offset or 0
 	local date = os.date("%Y-%m-%d", os.time() + days_offset * 86400)
 	local filename = config.dailydir .. "/" .. date .. ".md"
@@ -264,6 +281,8 @@ function M.open(days_offset)
 	local file = io.open(expanded_filename, "r")
 	if file then
 		file:close()
+		-- Ensure nav line uses modern wikilink format before opening
+		M.update_file_nav_line(expanded_filename)
 	else
 		-- File doesn't exist, create it with the template content
 		local template_content = M.get_template_content()
@@ -325,6 +344,11 @@ end
 
 -- Edit daily template
 function M.edit_template()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local utils = require("womwiki.utils")
 
 	-- Always use/create wiki template
@@ -373,6 +397,11 @@ end
 
 -- Cleanup unmodified daily notes
 function M.cleanup()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local template_content = M.get_template_content()
 
 	local files = M.list_files()
@@ -475,8 +504,63 @@ local NAV_PATTERNS = {
 -- New nav line content
 local NEW_NAV_LINE = "<!-- [[« Prev]] · [[Next »]] -->"
 
+-- Escape a date string for use in Lua patterns (hyphens are special)
+local function date_to_pattern(date)
+	return date:gsub("%-", "%%-")
+end
+
+-- Update a single daily note's nav line to the modern wikilink format.
+-- Handles: old format (replace), missing nav with date heading (prepend),
+-- new format (no-op). Returns true if the file was modified.
+function M.update_file_nav_line(filepath)
+	local file = io.open(filepath, "r")
+	if not file then
+		return false
+	end
+
+	local first_line = file:read("*l")
+	local rest = file:read("*a")
+	file:close()
+
+	if not first_line then
+		return false
+	end
+
+	-- Already modern — nothing to do
+	if first_line:match(NAV_PATTERNS.new) then
+		return false
+	end
+
+	local new_content
+	if first_line:match(NAV_PATTERNS.old) then
+		-- Old format → replace with new wikilink format
+		new_content = NEW_NAV_LINE .. "\n" .. (rest or "")
+	else
+		-- Check for missing nav line (date heading on line 1)
+		local date = filepath:match("(%d%d%d%d%-%d%d%-%d%d)%.md$")
+		if date and first_line:match("^# " .. date_to_pattern(date) .. "$") then
+			new_content = NEW_NAV_LINE .. "\n" .. first_line .. "\n" .. (rest or "")
+		else
+			return false
+		end
+	end
+
+	file = io.open(filepath, "w")
+	if not file then
+		return false
+	end
+	file:write(new_content)
+	file:close()
+	return true
+end
+
 -- Modernize daily note headers to use new nav format
 function M.modernize_headers()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local files = M.list_files()
 	local to_update = {}
 	local skipped = 0
@@ -491,7 +575,7 @@ function M.modernize_headers()
 				local rest = file:read("*a")
 				file:close()
 
-				if first_line then
+				if first_line and not first_line:match(NAV_PATTERNS.new) then
 					if first_line:match(NAV_PATTERNS.old) then
 						-- Old format, needs update
 						table.insert(to_update, {
@@ -500,7 +584,7 @@ function M.modernize_headers()
 							action = "replace",
 							rest = rest,
 						})
-					elseif first_line:match("^# " .. date .. "$") then
+					elseif first_line:match("^# " .. date_to_pattern(date) .. "$") then
 						-- Missing nav line, date heading on line 1
 						table.insert(to_update, {
 							name = filename,
@@ -509,8 +593,8 @@ function M.modernize_headers()
 							first_line = first_line,
 							rest = rest,
 						})
-					elseif not first_line:match(NAV_PATTERNS.new) then
-						-- Ambiguous format, skip (new format files need no action)
+					else
+						-- Unrecognized first line format, skip
 						skipped = skipped + 1
 					end
 				end

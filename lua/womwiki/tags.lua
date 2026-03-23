@@ -6,6 +6,11 @@ local utils = require("womwiki.utils")
 
 local M = {}
 
+--- Strip inline code spans so tags inside backticks aren't matched
+local function strip_inline_code(s)
+	return s:gsub("`[^`]+`", "")
+end
+
 -- Tag index cache
 M.cache = {
 	index = {}, -- tag -> [{path, title, full_path}, ...]
@@ -114,7 +119,7 @@ function M.get_inline_tags(filepath)
 		end
 	elseif first_line then
 		-- Process first line if not frontmatter
-		for tag in first_line:gmatch(pattern) do
+		for tag in strip_inline_code(first_line):gmatch(pattern) do
 			if not seen[tag] then
 				seen[tag] = true
 				table.insert(tags, tag)
@@ -126,7 +131,7 @@ function M.get_inline_tags(filepath)
 	for line in f:lines() do
 		-- Skip code blocks
 		if not line:match("^```") then
-			for tag in line:gmatch(pattern) do
+			for tag in strip_inline_code(line):gmatch(pattern) do
 				if not seen[tag] then
 					seen[tag] = true
 					table.insert(tags, tag)
@@ -266,7 +271,7 @@ function M.read_file_metadata(filepath)
 			result.title = h1
 		end
 		if tags_enabled then
-			for tag in first_line:gmatch(inline_pattern) do
+			for tag in strip_inline_code(first_line):gmatch(inline_pattern) do
 				if not seen[tag] then
 					seen[tag] = true
 					table.insert(result.tags, tag)
@@ -292,7 +297,7 @@ function M.read_file_metadata(filepath)
 
 		-- Extract inline tags (outside code blocks)
 		if tags_enabled and not in_code_block then
-			for tag in line:gmatch(inline_pattern) do
+			for tag in strip_inline_code(line):gmatch(inline_pattern) do
 				if not seen[tag] then
 					seen[tag] = true
 					table.insert(result.tags, tag)
@@ -464,6 +469,11 @@ end
 
 --- List all tags with counts (picker)
 function M.list_tags()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	local index = M.get_tag_index()
 	local all_tags = M.get_all_tags()
 
@@ -527,9 +537,11 @@ function M.list_tags()
 				["default"] = function(selected)
 					if selected and selected[1] then
 						local tag = selected[1]:match("^#([%w_-]+)")
-						if tag then
-							M.filter_by_tag(tag)
+						if not tag then
+							vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
+							return
 						end
+						M.filter_by_tag(tag)
 					end
 				end,
 			},
@@ -542,9 +554,11 @@ function M.list_tags()
 			source = { items = display_items, name = "Tags" },
 			choose = function(item)
 				local tag = item:match("^#([%w_-]+)")
-				if tag then
-					M.filter_by_tag(tag)
+				if not tag then
+					vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
+					return
 				end
+				M.filter_by_tag(tag)
 			end,
 		})
 	elseif picker_type == "snacks" then
@@ -556,9 +570,11 @@ function M.list_tags()
 			prompt = "Tags",
 			confirm = function(item)
 				local tag = item:match("^#([%w_-]+)")
-				if tag then
-					M.filter_by_tag(tag)
+				if not tag then
+					vim.notify("Failed to parse tag from selection", vim.log.levels.WARN)
+					return
 				end
+				M.filter_by_tag(tag)
 			end,
 		})
 	end
@@ -602,6 +618,11 @@ end
 --- Filter files by tag (picker showing files with that tag)
 --- @param tag string|nil Tag to filter by (prompts if nil)
 function M.filter_by_tag(tag)
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
 	if not tag then
 		-- Prompt for tag
 		local all_tags = M.get_all_tags()
@@ -669,6 +690,10 @@ function M.filter_by_tag(tag)
 				["default"] = function(selected)
 					if selected and selected[1] then
 						local path = selected[1]:match("^([^%s]+)")
+						if not path then
+							vim.notify("Failed to parse selection", vim.log.levels.WARN)
+							return
+						end
 						for _, file in ipairs(files) do
 							if file.path == path then
 								utils.open_wiki_file(file.full_path)
@@ -687,6 +712,10 @@ function M.filter_by_tag(tag)
 			source = { items = display_items, name = "Files tagged #" .. tag },
 			choose = function(item)
 				local path = item:match("^([^%s]+)")
+				if not path then
+					vim.notify("Failed to parse selection", vim.log.levels.WARN)
+					return
+				end
 				for _, file in ipairs(files) do
 					if file.path == path then
 						utils.open_wiki_file(file.full_path)
@@ -704,6 +733,10 @@ function M.filter_by_tag(tag)
 			prompt = "Files tagged #" .. tag,
 			confirm = function(item)
 				local path = item:match("^([^%s]+)")
+				if not path then
+					vim.notify("Failed to parse selection", vim.log.levels.WARN)
+					return
+				end
 				for _, file in ipairs(files) do
 					if file.path == path then
 						utils.open_wiki_file(file.full_path)
