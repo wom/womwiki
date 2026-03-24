@@ -281,6 +281,192 @@ bg["only includes links to existing files"] = function()
 	cleanup_mini_wiki(tmpdir)
 end
 
+bg["keys subdirectory files by relative path"] = function()
+	local tmpdir = setup_mini_wiki()
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	-- Create a subdirectory with a file
+	vim.fn.mkdir(tmpdir .. "/projects", "p")
+	local f = io.open(tmpdir .. "/projects/roadmap.md", "w")
+	if f then
+		f:write("# Roadmap\n[[page-a]]\n")
+		f:close()
+	end
+
+	local result = graph._build_link_graph()
+
+	-- Subdirectory file should be keyed by relative path
+	expect.no_equality(result["projects/roadmap"], nil)
+	-- Should NOT be keyed by basename alone
+	expect.equality(result["roadmap"], nil)
+
+	-- Its link to page-a should be tracked
+	local targets = {}
+	for _, t in ipairs(result["projects/roadmap"].links_to) do
+		targets[t] = true
+	end
+	expect.equality(targets["page-a"], true)
+
+	-- page-a should have backlink from projects/roadmap
+	local a_from = {}
+	for _, from in ipairs(result["page-a"].linked_from) do
+		a_from[from] = true
+	end
+	expect.equality(a_from["projects/roadmap"], true)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	cleanup_mini_wiki(tmpdir)
+end
+
+bg["excludes custom daily directory"] = function()
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/journal"
+
+	-- Create files in custom daily dir and a regular file
+	vim.fn.mkdir(tmpdir .. "/journal", "p")
+	local f1 = io.open(tmpdir .. "/journal/2024-01-01.md", "w")
+	if f1 then
+		f1:write("# Daily\n")
+		f1:close()
+	end
+	local f2 = io.open(tmpdir .. "/note.md", "w")
+	if f2 then
+		f2:write("# Note\n")
+		f2:close()
+	end
+
+	local result = graph._build_link_graph()
+
+	-- Journal file should be excluded
+	expect.equality(result["2024-01-01"], nil)
+	expect.equality(result["journal/2024-01-01"], nil)
+	-- Regular file should be included
+	expect.no_equality(result["note"], nil)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	vim.fn.delete(tmpdir, "rf")
+end
+
+--------------------------------------------------------------------------------
+-- _is_daily_note
+--------------------------------------------------------------------------------
+
+local dn = new_set()
+T["_is_daily_note"] = dn
+
+dn["matches daily note path"] = function()
+	local config = require("womwiki.config")
+	local orig_dailydir = config.dailydir
+	config.dailydir = "/tmp/wiki/daily"
+
+	expect.equality(graph._is_daily_note("/tmp/wiki/daily/2024-01-15.md"), true)
+	expect.equality(graph._is_daily_note("/tmp/wiki/daily/2024-12-31.md"), true)
+
+	config.dailydir = orig_dailydir
+end
+
+dn["rejects non-daily paths"] = function()
+	local config = require("womwiki.config")
+	local orig_dailydir = config.dailydir
+	config.dailydir = "/tmp/wiki/daily"
+
+	expect.equality(graph._is_daily_note("/tmp/wiki/page.md"), false)
+	expect.equality(graph._is_daily_note("/tmp/wiki/notes/page.md"), false)
+
+	config.dailydir = orig_dailydir
+end
+
+dn["handles nil dailydir"] = function()
+	local config = require("womwiki.config")
+	local orig_dailydir = config.dailydir
+	config.dailydir = nil
+
+	expect.equality(graph._is_daily_note("/tmp/wiki/daily/2024-01-15.md"), false)
+
+	config.dailydir = orig_dailydir
+end
+
+dn["does not match partial directory names"] = function()
+	local config = require("womwiki.config")
+	local orig_dailydir = config.dailydir
+	config.dailydir = "/tmp/wiki/daily"
+
+	-- "daily-notes" should NOT match "daily"
+	expect.equality(graph._is_daily_note("/tmp/wiki/daily-notes/file.md"), false)
+
+	config.dailydir = orig_dailydir
+end
+
+--------------------------------------------------------------------------------
+-- _get_all_wiki_files
+--------------------------------------------------------------------------------
+
+local wf = new_set()
+T["_get_all_wiki_files"] = wf
+
+wf["includes subdirectory files with relative paths"] = function()
+	local tmpdir = setup_mini_wiki()
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	-- Create a subdirectory with a file
+	vim.fn.mkdir(tmpdir .. "/projects", "p")
+	local f = io.open(tmpdir .. "/projects/roadmap.md", "w")
+	if f then
+		f:write("# Roadmap\n")
+		f:close()
+	end
+
+	local files = graph._get_all_wiki_files()
+
+	local found = false
+	for _, file in ipairs(files) do
+		if file.relative == "projects/roadmap.md" then
+			found = true
+			expect.equality(file.name, "roadmap")
+			expect.equality(file.path, tmpdir .. "/projects/roadmap.md")
+		end
+	end
+	expect.equality(found, true)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	cleanup_mini_wiki(tmpdir)
+end
+
+wf["excludes daily directory files"] = function()
+	local tmpdir = setup_mini_wiki()
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	local files = graph._get_all_wiki_files()
+
+	for _, file in ipairs(files) do
+		expect.equality(vim.startswith(file.relative, "daily/"), false)
+	end
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	cleanup_mini_wiki(tmpdir)
+end
+
 --------------------------------------------------------------------------------
 -- get_link_graph (caching layer)
 --------------------------------------------------------------------------------

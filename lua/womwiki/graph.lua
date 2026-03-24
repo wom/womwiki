@@ -24,7 +24,9 @@ function M.invalidate_cache()
 	M.cache.last_scan = 0
 end
 
--- Get all markdown links from a file
+--- Get all markdown links from a file
+--- @param file_path string Absolute path to a markdown file
+--- @return string[] List of link targets found in the file
 local function get_links_from_file(file_path)
 	local links = {}
 	local lines = utils.read_lines(file_path)
@@ -60,7 +62,25 @@ local function get_links_from_file(file_path)
 	return links
 end
 
--- Get all wiki files (excluding daily directory)
+--- Check if a file path is inside the daily notes directory
+--- @param filepath string Absolute path to check
+--- @return boolean
+local function is_daily_note(filepath)
+	return config.dailydir ~= nil and vim.startswith(filepath, config.dailydir .. "/")
+end
+
+--- Get the graph key for the current buffer (relative path from wikidir without .md)
+--- @return string Graph key for the current file
+local function current_file_key()
+	local abs = vim.fn.expand("%:p")
+	if config.wikidir and vim.startswith(abs, config.wikidir .. "/") then
+		return abs:sub(#config.wikidir + 2):gsub("%.md$", "")
+	end
+	return vim.fn.expand("%:t:r")
+end
+
+--- Get all wiki files (excluding daily directory)
+--- @return table[] List of {name: string, path: string, relative: string}
 local function get_all_wiki_files()
 	local files = {}
 	local function scan_directory(dir, relative_path)
@@ -84,7 +104,7 @@ local function get_all_wiki_files()
 					path = full_path,
 					relative = file_relative,
 				})
-			elseif type == "directory" and name ~= "daily" and name ~= ".git" then
+			elseif type == "directory" and name ~= ".git" and full_path ~= config.dailydir then
 				scan_directory(full_path, file_relative)
 			end
 		end
@@ -94,31 +114,34 @@ local function get_all_wiki_files()
 	return files
 end
 
--- Build link graph data structure
+--- Build link graph data structure
+--- @return table Graph keyed by relative path (without .md) with links_to/linked_from arrays
 local function build_link_graph()
 	local files = get_all_wiki_files()
 	local graph = {}
 	local all_targets = {}
 
-	-- Initialize graph and collect all possible targets
+	-- Initialize graph and collect all possible targets (keyed by relative path without .md)
 	for _, file in ipairs(files) do
-		graph[file.name] = {
+		local key = file.relative:gsub("%.md$", "")
+		graph[key] = {
 			path = file.path,
 			links_to = {},
 			linked_from = {},
 		}
-		all_targets[file.name] = true
+		all_targets[key] = true
 	end
 
 	-- Build adjacency lists
 	for _, file in ipairs(files) do
+		local key = file.relative:gsub("%.md$", "")
 		local links = get_links_from_file(file.path)
 		for _, target in ipairs(links) do
 			-- Only include links to files that exist
 			if all_targets[target] then
-				table.insert(graph[file.name].links_to, target)
+				table.insert(graph[key].links_to, target)
 				if graph[target] then
-					table.insert(graph[target].linked_from, file.name)
+					table.insert(graph[target].linked_from, key)
 				end
 			end
 		end
@@ -135,11 +158,20 @@ end
 M._get_links_from_file = get_links_from_file
 
 --- Build link graph data structure from all wiki files (test helper)
---- @return table Graph keyed by filename with links_to/linked_from arrays
+--- @return table Graph keyed by relative path (without .md) with links_to/linked_from arrays
 M._build_link_graph = build_link_graph
 
+--- Check if a file path is inside the daily notes directory (test helper)
+--- @param filepath string Absolute path to check
+--- @return boolean
+M._is_daily_note = is_daily_note
+
+--- Get all wiki files excluding daily directory (test helper)
+--- @return table[] List of {name, path, relative} tables
+M._get_all_wiki_files = get_all_wiki_files
+
 --- Get the cached link graph, rebuilding if stale
---- @return table Graph keyed by filename with links_to/linked_from arrays
+--- @return table Graph keyed by relative path (without .md) with links_to/linked_from arrays
 function M.get_link_graph()
 	local now = os.time()
 
@@ -248,7 +280,7 @@ function M.show()
 	end
 
 	local graph = M.get_link_graph()
-	local current_file = vim.fn.expand("%:t:r")
+	local current_file = current_file_key()
 
 	-- Build graph display
 	local lines = {}
@@ -274,12 +306,6 @@ function M.show()
 	local total_links = 0
 	local orphans = {}
 	local hubs = {}
-
-	-- Helper to check if file is in daily directory
-	local function is_daily_note(filepath)
-		local daily_prefix = config.dailydir:gsub("^" .. config.wikidir .. "/", "")
-		return filepath:match("^" .. vim.pesc(daily_prefix) .. "/")
-	end
 
 	for name, data in pairs(graph) do
 		total_files = total_files + 1
@@ -637,6 +663,7 @@ function M.show()
 	vim.keymap.set("n", "o", function()
 		vim.api.nvim_win_close(win, true)
 		if #orphans == 0 then
+			vim.notify("No orphan files found", vim.log.levels.INFO)
 			return
 		end
 
