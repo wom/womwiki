@@ -88,6 +88,7 @@ M.dailies = files.dailies
 M.recent = files.recent
 M.search = files.search
 M.create_file = files.create
+M.rename_file = files.rename
 M.get_wiki_folders = files.get_wiki_folders
 M.get_wiki_files = files.get_wiki_files
 M.get_file_headings = files.get_file_headings
@@ -98,6 +99,7 @@ M.get_file_headings = files.get_file_headings
 
 M.backlinks = graph.backlinks
 M.show_graph = graph.show
+M.validate_links = graph.validate_links
 
 --------------------------------------------------------------------------------
 -- Tags (re-export from tags module)
@@ -251,6 +253,7 @@ function M.analyze_menu()
 	M.show_menu({
 		{ "[B]acklinks", "b", M.backlinks },
 		{ "[G]raph View", "g", M.show_graph },
+		{ "[V]alidate Links", "v", M.validate_links },
 		{ "[T]ags", "t", M.tags_menu },
 	}, "Analyze", M.picker)
 end
@@ -267,6 +270,7 @@ end
 -- Tools submenu
 function M.tools_menu()
 	M.show_menu({
+		{ "[R]ename / Refactor", "r", M.rename_file },
 		{ "[E]dit Daily Template", "e", M.edit_daily_template },
 		{ "[C]leanup Empty Dailies", "c", M.cleanup },
 		{ "[M]odernize Headers", "m", M.modernize_daily_headers },

@@ -529,4 +529,155 @@ cg["invalidate forces rebuild"] = function()
 	cleanup_mini_wiki(tmpdir)
 end
 
+--------------------------------------------------------------------------------
+-- broken links (from build_link_graph second return value)
+--------------------------------------------------------------------------------
+
+local bl = new_set()
+T["broken_links"] = bl
+
+bl["returns broken links for non-existent targets"] = function()
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	-- Create a file that links to non-existent targets
+	local f = io.open(tmpdir .. "/source.md", "w")
+	if f then
+		f:write("# Source\n[[missing-page]]\n[link](also-missing.md)\n")
+		f:close()
+	end
+
+	local _, broken = graph._build_link_graph()
+
+	expect.no_equality(broken["source"], nil)
+	local targets = {}
+	for _, t in ipairs(broken["source"]) do
+		targets[t] = true
+	end
+	expect.equality(targets["missing-page"], true)
+	expect.equality(targets["also-missing"], true)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	vim.fn.delete(tmpdir, "rf")
+end
+
+bl["valid links are not in broken_links"] = function()
+	local tmpdir = setup_mini_wiki()
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	local _, broken = graph._build_link_graph()
+
+	-- All links in the mini wiki fixtures resolve to existing files
+	local total_broken = 0
+	for _, targets in pairs(broken) do
+		total_broken = total_broken + #targets
+	end
+	expect.equality(total_broken, 0)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	cleanup_mini_wiki(tmpdir)
+end
+
+bl["empty wiki has no broken links"] = function()
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	local _, broken = graph._build_link_graph()
+
+	local count = 0
+	for _ in pairs(broken) do
+		count = count + 1
+	end
+	expect.equality(count, 0)
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	vim.fn.delete(tmpdir, "rf")
+end
+
+bl["mixed valid and broken links"] = function()
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	-- Create two files, one links to the other + a broken link
+	local f1 = io.open(tmpdir .. "/real.md", "w")
+	if f1 then
+		f1:write("# Real\n")
+		f1:close()
+	end
+	local f2 = io.open(tmpdir .. "/linker.md", "w")
+	if f2 then
+		f2:write("# Linker\n[[real]]\n[[ghost]]\n")
+		f2:close()
+	end
+
+	local result, broken = graph._build_link_graph()
+
+	-- Valid link should be in graph
+	local linker_targets = {}
+	for _, t in ipairs(result["linker"].links_to) do
+		linker_targets[t] = true
+	end
+	expect.equality(linker_targets["real"], true)
+
+	-- Broken link should be in broken_links
+	expect.no_equality(broken["linker"], nil)
+	expect.equality(broken["linker"][1], "ghost")
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	vim.fn.delete(tmpdir, "rf")
+end
+
+bl["get_broken_links returns cached broken links"] = function()
+	local tmpdir = vim.fn.tempname()
+	vim.fn.mkdir(tmpdir, "p")
+	local config = require("womwiki.config")
+	local orig_wikidir = config.wikidir
+	local orig_dailydir = config.dailydir
+	config.wikidir = tmpdir
+	config.dailydir = tmpdir .. "/daily"
+
+	local f = io.open(tmpdir .. "/test.md", "w")
+	if f then
+		f:write("# Test\n[[nonexistent]]\n")
+		f:close()
+	end
+
+	-- Reset cache
+	graph.cache.graph = nil
+	graph.cache.broken_links = nil
+	graph.cache.last_scan = 0
+	graph.cache.rebuilding = false
+
+	local broken = graph.get_broken_links()
+	expect.no_equality(broken["test"], nil)
+	expect.equality(broken["test"][1], "nonexistent")
+
+	config.wikidir = orig_wikidir
+	config.dailydir = orig_dailydir
+	vim.fn.delete(tmpdir, "rf")
+end
+
 return T

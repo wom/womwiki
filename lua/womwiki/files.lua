@@ -261,4 +261,116 @@ function M.get_file_headings(filepath)
 	return headings
 end
 
+--- Replace link references from old_key to new_key in a file's content
+--- @param content string File content
+--- @param old_key string Old link target (relative path without .md)
+--- @param new_key string New link target (relative path without .md)
+--- @return string Updated content
+--- @return integer Number of replacements made
+local function replace_link_references(content, old_key, new_key)
+	local count = 0
+
+	-- Replace wikilinks: [[old_key]] → [[new_key]]
+	local new_content, n1 = content:gsub("%[%[" .. vim.pesc(old_key) .. "%]%]", "[[" .. new_key .. "]]")
+	count = count + n1
+
+	-- Replace wikilinks with display: [[old_key|display]] → [[new_key|display]]
+	new_content, n1 = new_content:gsub("%[%[" .. vim.pesc(old_key) .. "|", "[[" .. new_key .. "|")
+	count = count + n1
+
+	-- Replace markdown links with .md: [text](old_key.md) → [text](new_key.md)
+	new_content, n1 = new_content:gsub("(%]%()(" .. vim.pesc(old_key) .. "%.md)(%))", "%1" .. new_key .. ".md%3")
+	count = count + n1
+
+	-- Replace markdown links without .md: [text](old_key) → [text](new_key)
+	-- Must not match .md version (already handled above)
+	new_content, n1 = new_content:gsub("(%]%()(" .. vim.pesc(old_key) .. ")(%))", "%1" .. new_key .. "%3")
+	count = count + n1
+
+	return new_content, count
+end
+
+--- Expose for testing
+M._replace_link_references = replace_link_references
+
+--- Rename a wiki file and update all inbound links across the wiki
+function M.rename()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
+	local current_path = vim.fn.expand("%:p")
+	if not vim.startswith(current_path, config.wikidir .. "/") then
+		vim.notify("Not in a wiki file", vim.log.levels.WARN)
+		return
+	end
+
+	local old_relative = current_path:sub(#config.wikidir + 2)
+	local old_key = old_relative:gsub("%.md$", "")
+	local old_basename = vim.fn.fnamemodify(old_relative, ":t:r")
+	local parent_dir = vim.fn.fnamemodify(old_relative, ":h")
+
+	vim.ui.input({ prompt = "Rename to: ", default = old_basename }, function(new_name)
+		if not new_name or new_name == "" or new_name == old_basename then
+			return
+		end
+
+		-- Compute new key and path
+		local new_key = parent_dir == "." and new_name or (parent_dir .. "/" .. new_name)
+		local new_relative = new_key .. ".md"
+		local new_path = config.wikidir .. "/" .. new_relative
+
+		-- Check if target already exists
+		if vim.uv.fs_stat(new_path) then
+			vim.notify("File already exists: " .. new_relative, vim.log.levels.ERROR)
+			return
+		end
+
+		-- Get graph to find all files that link to this one
+		local graph = require("womwiki.graph")
+		local link_graph = graph.get_link_graph()
+		local node = link_graph[old_key]
+
+		local updated_files = 0
+
+		if node and #node.linked_from > 0 then
+			for _, source_key in ipairs(node.linked_from) do
+				local source_node = link_graph[source_key]
+				if source_node then
+					local content = utils.read_file(source_node.path)
+					if content then
+						local new_content, replacements = replace_link_references(content, old_key, new_key)
+						if replacements > 0 then
+							utils.write_file(source_node.path, new_content)
+							updated_files = updated_files + 1
+						end
+					end
+				end
+			end
+		end
+
+		-- Rename the actual file
+		local ok, err = os.rename(current_path, new_path)
+		if not ok then
+			vim.notify("Failed to rename file: " .. (err or "unknown error"), vim.log.levels.ERROR)
+			return
+		end
+
+		-- Update current buffer to point to new file
+		vim.cmd("edit " .. vim.fn.fnameescape(new_path))
+
+		-- Invalidate all caches
+		M.invalidate_cache()
+		require("womwiki.tags").invalidate_cache()
+		graph.invalidate_cache()
+
+		local msg = "Renamed to " .. new_relative
+		if updated_files > 0 then
+			msg = msg .. " (updated links in " .. updated_files .. " file" .. (updated_files > 1 and "s" or "") .. ")"
+		end
+		vim.notify(msg, vim.log.levels.INFO)
+	end)
+end
+
 return M

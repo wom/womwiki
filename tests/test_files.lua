@@ -72,4 +72,69 @@ headings["returns empty for nonexistent file"] = function()
 	expect.equality(#result, 0)
 end
 
+--------------------------------------------------------------------------------
+-- _replace_link_references
+--------------------------------------------------------------------------------
+
+local rl = new_set()
+T["_replace_link_references"] = rl
+
+rl["replaces wikilink"] = function()
+	local content = "See [[old-page]] for details."
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	expect.equality(result, "See [[new-page]] for details.")
+	expect.equality(count, 1)
+end
+
+rl["replaces wikilink with display text"] = function()
+	local content = "See [[old-page|My Page]] for details."
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	expect.equality(result, "See [[new-page|My Page]] for details.")
+	expect.equality(count, 1)
+end
+
+rl["replaces markdown link with .md"] = function()
+	local content = "See [My Page](old-page.md) for details."
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	expect.equality(result, "See [My Page](new-page.md) for details.")
+	expect.equality(count, 1)
+end
+
+rl["replaces markdown link without .md"] = function()
+	local content = "See [My Page](old-page) for details."
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	expect.equality(result, "See [My Page](new-page) for details.")
+	expect.equality(count, 1)
+end
+
+rl["replaces multiple link types in same content"] = function()
+	local content = "Links: [[old-page]], [[old-page|display]], [text](old-page.md), [text](old-page)"
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	expect.equality(result, "Links: [[new-page]], [[new-page|display]], [text](new-page.md), [text](new-page)")
+	expect.equality(count, 4)
+end
+
+rl["does not replace partial matches"] = function()
+	local content = "See [[old-page-extra]] and [[old-pager]]."
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	-- [[old-page-extra]] should NOT match (wikilink pattern requires ]])
+	-- [[old-pager]] should NOT match (wikilink pattern requires ]])
+	expect.equality(result, "See [[old-page-extra]] and [[old-pager]].")
+	expect.equality(count, 0)
+end
+
+rl["handles subdirectory paths"] = function()
+	local content = "See [[projects/roadmap]] and [link](projects/roadmap.md)."
+	local result, count = files._replace_link_references(content, "projects/roadmap", "projects/plan")
+	expect.equality(result, "See [[projects/plan]] and [link](projects/plan.md).")
+	expect.equality(count, 2)
+end
+
+rl["returns zero count when no matches"] = function()
+	local content = "No links here, just text."
+	local result, count = files._replace_link_references(content, "old-page", "new-page")
+	expect.equality(result, content)
+	expect.equality(count, 0)
+end
+
 return T

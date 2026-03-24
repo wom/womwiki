@@ -9,11 +9,13 @@ local M = {}
 
 --- @class womwiki.GraphCache
 --- @field graph table|nil The built link graph
+--- @field broken_links table|nil Broken links: { [source_key] = { target1, ... } }
 --- @field last_scan integer Timestamp of last build
 --- @field ttl integer Cache TTL in seconds
 --- @field rebuilding boolean Whether async rebuild is in progress
 M.cache = {
 	graph = nil,
+	broken_links = nil,
 	last_scan = 0,
 	ttl = 300,
 	rebuilding = false,
@@ -115,11 +117,13 @@ local function get_all_wiki_files()
 end
 
 --- Build link graph data structure
---- @return table Graph keyed by relative path (without .md) with links_to/linked_from arrays
+--- @return table graph Graph keyed by relative path (without .md) with links_to/linked_from arrays
+--- @return table broken_links Broken links: { [source_key] = { target1, ... } }
 local function build_link_graph()
 	local files = get_all_wiki_files()
 	local graph = {}
 	local all_targets = {}
+	local broken_links = {}
 
 	-- Initialize graph and collect all possible targets (keyed by relative path without .md)
 	for _, file in ipairs(files) do
@@ -137,17 +141,22 @@ local function build_link_graph()
 		local key = file.relative:gsub("%.md$", "")
 		local links = get_links_from_file(file.path)
 		for _, target in ipairs(links) do
-			-- Only include links to files that exist
 			if all_targets[target] then
 				table.insert(graph[key].links_to, target)
 				if graph[target] then
 					table.insert(graph[target].linked_from, key)
 				end
+			else
+				-- Collect broken/dangling links
+				if not broken_links[key] then
+					broken_links[key] = {}
+				end
+				table.insert(broken_links[key], target)
 			end
 		end
 	end
 
-	return graph
+	return graph, broken_links
 end
 
 -- Expose internal functions for testing
@@ -158,7 +167,8 @@ end
 M._get_links_from_file = get_links_from_file
 
 --- Build link graph data structure from all wiki files (test helper)
---- @return table Graph keyed by relative path (without .md) with links_to/linked_from arrays
+--- @return table graph Graph keyed by relative path (without .md) with links_to/linked_from arrays
+--- @return table broken_links Broken links: { [source_key] = { target1, ... } }
 M._build_link_graph = build_link_graph
 
 --- Check if a file path is inside the daily notes directory (test helper)
@@ -182,13 +192,13 @@ function M.get_link_graph()
 	if not M.cache.rebuilding then
 		if not M.cache.graph then
 			-- First load: synchronous
-			M.cache.graph = build_link_graph()
+			M.cache.graph, M.cache.broken_links = build_link_graph()
 			M.cache.last_scan = now
 		else
 			-- Stale: return old data, rebuild async
 			M.cache.rebuilding = true
 			vim.schedule(function()
-				M.cache.graph = build_link_graph()
+				M.cache.graph, M.cache.broken_links = build_link_graph()
 				M.cache.last_scan = os.time()
 				M.cache.rebuilding = false
 			end)
@@ -196,6 +206,14 @@ function M.get_link_graph()
 	end
 
 	return M.cache.graph
+end
+
+--- Get the cached broken links table
+--- @return table Broken links: { [source_key] = { target1, ... } }
+function M.get_broken_links()
+	-- Ensure graph is built (populates broken_links as side effect)
+	M.get_link_graph()
+	return M.cache.broken_links or {}
 end
 
 --- Show backlinks to current file using the available picker
@@ -331,6 +349,13 @@ function M.show()
 	-- Calculate connection density
 	local avg_links = total_files > 0 and string.format("%.1f", total_links / total_files) or "0"
 
+	-- Count broken links
+	local broken = M.get_broken_links()
+	local total_broken = 0
+	for _, targets in pairs(broken) do
+		total_broken = total_broken + #targets
+	end
+
 	-- Stats section with density
 	local stats_line = "│ Files: "
 		.. total_files
@@ -338,6 +363,8 @@ function M.show()
 		.. total_links
 		.. " | Avg: "
 		.. avg_links
+		.. " | Broken: "
+		.. total_broken
 		.. " | Orphans: "
 		.. #orphans
 	local stats_padding = max_width - #stats_line + 1
@@ -463,7 +490,7 @@ function M.show()
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphOrphan", col_start = 4, col_end = 11 })
 	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
-	local key_line1 = "│ [b]acklinks  [o]rphans  [h]ubs  [e]xpand  [/]search  [f]ind  [q]uit"
+	local key_line1 = "│ [b]acklinks  [o]rphans  [h]ubs  [v]alidate  [e]xpand  [/]search  [f]ind  [q]uit"
 	table.insert(lines, key_line1 .. string.rep(" ", max_width - #key_line1 + 1) .. "│")
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphKey" })
 	table.insert(lines, "╰" .. string.rep("─", max_width) .. "╯")
@@ -676,6 +703,68 @@ function M.show()
 			utils.open_wiki_file(config.wikidir .. "/" .. selected)
 		end)
 	end, keymap_opts)
+
+	vim.keymap.set("n", "v", function()
+		vim.api.nvim_win_close(win, true)
+		M.validate_links()
+	end, keymap_opts)
+end
+
+--- Show broken/dangling links via picker with option to create missing files
+function M.validate_links()
+	if not config.is_valid() then
+		vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+		return
+	end
+
+	local broken = M.get_broken_links()
+
+	-- Build flat list of "source → missing-target" entries
+	local items = {}
+	for source, targets in pairs(broken) do
+		for _, target in ipairs(targets) do
+			table.insert(items, source .. ".md → " .. target)
+		end
+	end
+
+	if #items == 0 then
+		vim.notify("All links valid — no broken links found", vim.log.levels.INFO)
+		return
+	end
+
+	table.sort(items)
+
+	utils.picker_select(items, { title = "Broken Links (" .. #items .. ")" }, function(selected)
+		-- Extract target from selection
+		local target = selected:match("→ (.+)$")
+		if not target then
+			return
+		end
+		target = vim.trim(target)
+
+		local target_path = config.wikidir .. "/" .. target .. ".md"
+
+		-- Ensure parent directory exists
+		local parent_dir = vim.fn.fnamemodify(target_path, ":h")
+		if vim.fn.isdirectory(parent_dir) == 0 then
+			vim.fn.mkdir(parent_dir, "p")
+		end
+
+		vim.ui.input({ prompt = "Create " .. target .. ".md? (y/n): " }, function(input)
+			if input and input:lower() == "y" then
+				local f = io.open(target_path, "w")
+				if f then
+					f:write("# " .. target:gsub("^.*/", "") .. "\n")
+					f:close()
+					M.invalidate_cache()
+					utils.open_wiki_file(target_path)
+					vim.notify("Created " .. target .. ".md", vim.log.levels.INFO)
+				else
+					vim.notify("Failed to create " .. target_path, vim.log.levels.ERROR)
+				end
+			end
+		end)
+	end)
 end
 
 return M
