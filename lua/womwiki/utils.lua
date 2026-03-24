@@ -123,7 +123,9 @@ function M.picker_select(items, opts, on_select)
 		picker.start({
 			source = { items = items, name = opts.title },
 			choose = function(item)
-				on_select(item)
+				vim.schedule(function()
+					on_select(item)
+				end)
 			end,
 		})
 	elseif picker_type == "snacks" then

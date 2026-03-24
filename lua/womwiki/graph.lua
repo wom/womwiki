@@ -36,28 +36,43 @@ local function get_links_from_file(file_path)
 		return links
 	end
 
+	local in_comment_block = false
 	for _, line in ipairs(lines) do
-		-- Match [text](link) pattern (standard markdown)
-		for _, link in line:gmatch("%[([^%]]+)%]%(([^%)]+)%)") do
-			-- Skip URLs, only process local links
-			if not link:match(patterns.URL_HTTP) then
-				-- Remove .md extension if present for consistency
-				local clean_link = link:gsub("%.md$", "")
-				table.insert(links, clean_link)
+		-- Track multi-line HTML comments
+		if in_comment_block then
+			if line:find("-->") then
+				in_comment_block = false
 			end
-		end
+		else
+			if line:find("<!%-%-") and not line:find("-->") then
+				in_comment_block = true
+			else
+				-- Strip inline HTML comments before extracting links
+				local clean_line = line:gsub("<!%-%-.--->", "")
 
-		-- Match [[link]] or [[link|display]] pattern (wikilinks)
-		if config.config.wikilinks and config.config.wikilinks.enabled then
-			for link_content in line:gmatch(patterns.WIKILINK) do
-				-- Parse [[link|display]] format - extract just the link part
-				local link_target = link_content:match("^([^|]+)") or link_content
-				-- Convert spaces based on config
-				local spaces_to = config.config.wikilinks.spaces_to
-				if spaces_to then
-					link_target = link_target:gsub(" ", spaces_to)
+				-- Match [text](link) pattern (standard markdown)
+				for _, link in clean_line:gmatch("%[([^%]]+)%]%(([^%)]+)%)") do
+					-- Skip URLs, only process local links
+					if not link:match(patterns.URL_HTTP) then
+						-- Remove .md extension if present for consistency
+						local clean_link = link:gsub("%.md$", "")
+						table.insert(links, clean_link)
+					end
 				end
-				table.insert(links, link_target)
+
+				-- Match [[link]] or [[link|display]] pattern (wikilinks)
+				if config.config.wikilinks and config.config.wikilinks.enabled then
+					for link_content in clean_line:gmatch(patterns.WIKILINK) do
+						-- Parse [[link|display]] format - extract just the link part
+						local link_target = link_content:match("^([^|]+)") or link_content
+						-- Convert spaces based on config
+						local spaces_to = config.config.wikilinks.spaces_to
+						if spaces_to then
+							link_target = link_target:gsub(" ", spaces_to)
+						end
+						table.insert(links, link_target)
+					end
+				end
 			end
 		end
 	end
@@ -81,7 +96,7 @@ local function current_file_key()
 	return vim.fn.expand("%:t:r")
 end
 
---- Get all wiki files (excluding daily directory)
+--- Get all wiki files
 --- @return table[] List of {name: string, path: string, relative: string}
 local function get_all_wiki_files()
 	local files = {}
@@ -106,7 +121,7 @@ local function get_all_wiki_files()
 					path = full_path,
 					relative = file_relative,
 				})
-			elseif type == "directory" and name ~= ".git" and full_path ~= config.dailydir then
+			elseif type == "directory" and name:sub(1, 1) ~= "." then
 				scan_directory(full_path, file_relative)
 			end
 		end
@@ -436,10 +451,7 @@ function M.show()
 	-- Orphan files (limited display)
 	if #orphans > 0 then
 		local max_orphans_shown = 10
-		table.insert(
-			lines,
-			"│ Orphan files (no connections, excluding dailies):" .. string.rep(" ", max_width - 50) .. "│"
-		)
+		table.insert(lines, "│ Orphan files (no connections):" .. string.rep(" ", max_width - 31) .. "│")
 
 		-- Sort orphans alphabetically
 		table.sort(orphans)
@@ -480,19 +492,22 @@ function M.show()
 	-- Instructions with help text
 	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
-	table.insert(lines, "│ Terminology:" .. string.rep(" ", max_width - 13) .. "│")
-	table.insert(
-		lines,
-		"│   Hubs: Files with 3+ backlinks (well-connected)" .. string.rep(" ", max_width - 49) .. "│"
-	)
-	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphHub", col_start = 4, col_end = 8 })
-	table.insert(lines, "│   Orphans: Files with no connections at all" .. string.rep(" ", max_width - 44) .. "│")
-	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphOrphan", col_start = 4, col_end = 11 })
-	table.insert(lines, "├" .. string.rep("─", max_width) .. "┤")
-	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
-	local key_line1 = "│ [b]acklinks  [o]rphans  [h]ubs  [v]alidate  [e]xpand  [/]search  [f]ind  [q]uit"
-	table.insert(lines, key_line1 .. string.rep(" ", max_width - #key_line1 + 1) .. "│")
-	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphKey" })
+	table.insert(lines, "│ Actions:" .. string.rep(" ", max_width - 9) .. "│")
+	local help_items = {
+		{ "[b]acklinks", "Find files that link to the current file" },
+		{ "[o]rphans", "Browse files with no connections at all" },
+		{ "[h]ubs", "Browse well-connected files (3+ backlinks)" },
+		{ "[v]alidate", "Find broken links and optionally create missing files" },
+		{ "[q]uit", "Close this window" },
+	}
+	for _, item in ipairs(help_items) do
+		local help_line = "│   " .. item[1] .. "  " .. item[2]
+		table.insert(lines, help_line .. string.rep(" ", max_width - #help_line + 1) .. "│")
+		table.insert(
+			highlights,
+			{ line = #lines - 1, hl_group = "WomwikiGraphKey", col_start = 4, col_end = 4 + #item[1] }
+		)
+	end
 	table.insert(lines, "╰" .. string.rep("─", max_width) .. "╯")
 	table.insert(highlights, { line = #lines - 1, hl_group = "WomwikiGraphBorder" })
 
@@ -541,132 +556,6 @@ function M.show()
 	vim.keymap.set("n", "b", function()
 		vim.api.nvim_win_close(win, true)
 		M.backlinks()
-	end, keymap_opts)
-
-	vim.keymap.set("n", "f", function()
-		vim.api.nvim_win_close(win, true)
-		require("womwiki.files").wiki()
-	end, keymap_opts)
-
-	vim.keymap.set("n", "/", function()
-		vim.api.nvim_win_close(win, true)
-
-		-- Use vim.schedule to ensure picker opens after window closes
-		vim.schedule(function()
-			local all_files = {}
-			for name, _ in pairs(graph) do
-				table.insert(all_files, name .. ".md")
-			end
-			table.sort(all_files)
-
-			utils.picker_select(all_files, { title = "Search/Filter Files" }, function(selected)
-				utils.open_wiki_file(config.wikidir .. "/" .. selected)
-			end)
-		end) -- Close vim.schedule
-	end, keymap_opts)
-
-	vim.keymap.set("n", "e", function()
-		vim.api.nvim_win_close(win, true)
-
-		-- Use vim.schedule to ensure picker opens after window closes
-		vim.schedule(function()
-			-- Helper to show file details in a floating window
-			local function show_file_details(filename)
-				-- Remove .md extension if present
-				local target_file = filename:gsub("%.md$", "")
-
-				if not graph[target_file] then
-					vim.notify("File not found in graph: " .. target_file, vim.log.levels.ERROR)
-					return
-				end
-
-				local data = graph[target_file]
-				local info_lines = {}
-				table.insert(info_lines, "╭─ File Details " .. string.rep("─", 50) .. "╮")
-				table.insert(info_lines, "│ File: " .. target_file .. string.rep(" ", 59 - #target_file) .. "│")
-				table.insert(
-					info_lines,
-					"│ Total connections: "
-						.. (#data.links_to + #data.linked_from)
-						.. string.rep(" ", 44 - #tostring(#data.links_to + #data.linked_from))
-						.. "│"
-				)
-				table.insert(info_lines, "├" .. string.rep("─", 65) .. "┤")
-				table.insert(
-					info_lines,
-					"│ Links to ("
-						.. #data.links_to
-						.. "):"
-						.. string.rep(" ", 52 - #tostring(#data.links_to))
-						.. "│"
-				)
-				if #data.links_to > 0 then
-					for _, link in ipairs(data.links_to) do
-						local line = "│   → " .. link
-						table.insert(info_lines, line .. string.rep(" ", 66 - #line) .. "│")
-					end
-				else
-					table.insert(info_lines, "│   (none)" .. string.rep(" ", 55) .. "│")
-				end
-				table.insert(info_lines, "├" .. string.rep("─", 65) .. "┤")
-				table.insert(
-					info_lines,
-					"│ Linked from ("
-						.. #data.linked_from
-						.. "):"
-						.. string.rep(" ", 49 - #tostring(#data.linked_from))
-						.. "│"
-				)
-				if #data.linked_from > 0 then
-					for _, link in ipairs(data.linked_from) do
-						local line = "│   ← " .. link
-						table.insert(info_lines, line .. string.rep(" ", 66 - #line) .. "│")
-					end
-				else
-					table.insert(info_lines, "│   (none)" .. string.rep(" ", 55) .. "│")
-				end
-				table.insert(info_lines, "╰" .. string.rep("─", 65) .. "╯")
-
-				-- Create and display floating window
-				local detail_buf = vim.api.nvim_create_buf(false, true)
-				vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, info_lines)
-				vim.bo[detail_buf].modifiable = false
-				vim.bo[detail_buf].buftype = "nofile"
-
-				local detail_width = 67
-				local detail_height = math.min(#info_lines, vim.o.lines - 4)
-				local detail_win = vim.api.nvim_open_win(detail_buf, true, {
-					relative = "editor",
-					width = detail_width,
-					height = detail_height,
-					col = math.floor((vim.o.columns - detail_width) / 2),
-					row = math.floor((vim.o.lines - detail_height) / 2),
-					style = "minimal",
-					border = "rounded",
-					title = " File Connections ",
-					title_pos = "center",
-				})
-
-				-- Close on q or Esc
-				vim.keymap.set("n", "q", function()
-					vim.api.nvim_win_close(detail_win, true)
-				end, { buffer = detail_buf, nowait = true, silent = true })
-				vim.keymap.set("n", "<Esc>", function()
-					vim.api.nvim_win_close(detail_win, true)
-				end, { buffer = detail_buf, nowait = true, silent = true })
-			end
-
-			-- Build list of all files
-			local all_files = {}
-			for name, _ in pairs(graph) do
-				table.insert(all_files, name .. ".md")
-			end
-			table.sort(all_files)
-
-			utils.picker_select(all_files, { title = "Select File to Expand" }, function(selected)
-				show_file_details(selected)
-			end)
-		end) -- Close vim.schedule
 	end, keymap_opts)
 
 	vim.keymap.set("n", "h", function()

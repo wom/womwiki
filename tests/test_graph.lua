@@ -112,6 +112,45 @@ links["strips .md extension from markdown links"] = function()
 	end
 end
 
+links["ignores links inside inline HTML comments"] = function()
+	local tmpfile = vim.fn.tempname() .. ".md"
+	local f = io.open(tmpfile, "w")
+	f:write("<!-- [[« Prev]] · [[Next »]] -->\n# Page\n[[real-link]]\n")
+	f:close()
+
+	local result = graph._get_links_from_file(tmpfile)
+	local set = {}
+	for _, link in ipairs(result) do
+		set[link] = true
+	end
+	-- Should extract real-link but NOT « Prev or Next »
+	expect.equality(set["real-link"], true)
+	expect.equality(set["«-Prev"], nil)
+	expect.equality(set["Next-»"], nil)
+	expect.equality(#result, 1)
+
+	vim.fn.delete(tmpfile)
+end
+
+links["ignores links inside multi-line HTML comments"] = function()
+	local tmpfile = vim.fn.tempname() .. ".md"
+	local f = io.open(tmpfile, "w")
+	f:write("<!--\n[[hidden-link]]\n[text](hidden.md)\n-->\n# Page\n[[visible]]\n")
+	f:close()
+
+	local result = graph._get_links_from_file(tmpfile)
+	local set = {}
+	for _, link in ipairs(result) do
+		set[link] = true
+	end
+	expect.equality(set["visible"], true)
+	expect.equality(set["hidden-link"], nil)
+	expect.equality(set["hidden"], nil)
+	expect.equality(#result, 1)
+
+	vim.fn.delete(tmpfile)
+end
+
 --------------------------------------------------------------------------------
 -- _build_link_graph (integration with fixtures as mini wiki)
 --------------------------------------------------------------------------------
@@ -217,7 +256,7 @@ bg["identifies orphan files"] = function()
 	cleanup_mini_wiki(tmpdir)
 end
 
-bg["excludes daily directory"] = function()
+bg["includes daily directory in graph"] = function()
 	local tmpdir = setup_mini_wiki()
 	local config = require("womwiki.config")
 	local orig_wikidir = config.wikidir
@@ -227,8 +266,21 @@ bg["excludes daily directory"] = function()
 
 	local result = graph._build_link_graph()
 
-	-- daily/2024-01-01 should NOT be in the graph
-	expect.equality(result["2024-01-01"], nil)
+	-- daily/2024-01-01 SHOULD be in the graph (keyed by relative path)
+	expect.no_equality(result["daily/2024-01-01"], nil)
+	-- Its link to page-a should be tracked
+	local targets = {}
+	for _, t in ipairs(result["daily/2024-01-01"].links_to) do
+		targets[t] = true
+	end
+	expect.equality(targets["page-a"], true)
+
+	-- page-a should have a backlink from the daily
+	local a_from = {}
+	for _, f in ipairs(result["page-a"].linked_from) do
+		a_from[f] = true
+	end
+	expect.equality(a_from["daily/2024-01-01"], true)
 
 	config.wikidir = orig_wikidir
 	config.dailydir = orig_dailydir
@@ -323,7 +375,7 @@ bg["keys subdirectory files by relative path"] = function()
 	cleanup_mini_wiki(tmpdir)
 end
 
-bg["excludes custom daily directory"] = function()
+bg["includes custom daily directory in graph"] = function()
 	local tmpdir = vim.fn.tempname()
 	vim.fn.mkdir(tmpdir, "p")
 	local config = require("womwiki.config")
@@ -347,9 +399,8 @@ bg["excludes custom daily directory"] = function()
 
 	local result = graph._build_link_graph()
 
-	-- Journal file should be excluded
-	expect.equality(result["2024-01-01"], nil)
-	expect.equality(result["journal/2024-01-01"], nil)
+	-- Journal file should now be included
+	expect.no_equality(result["journal/2024-01-01"], nil)
 	-- Regular file should be included
 	expect.no_equality(result["note"], nil)
 
@@ -448,7 +499,7 @@ wf["includes subdirectory files with relative paths"] = function()
 	cleanup_mini_wiki(tmpdir)
 end
 
-wf["excludes daily directory files"] = function()
+wf["includes daily directory files"] = function()
 	local tmpdir = setup_mini_wiki()
 	local config = require("womwiki.config")
 	local orig_wikidir = config.wikidir
@@ -458,9 +509,13 @@ wf["excludes daily directory files"] = function()
 
 	local files = graph._get_all_wiki_files()
 
+	local found_daily = false
 	for _, file in ipairs(files) do
-		expect.equality(vim.startswith(file.relative, "daily/"), false)
+		if vim.startswith(file.relative, "daily/") then
+			found_daily = true
+		end
 	end
+	expect.equality(found_daily, true)
 
 	config.wikidir = orig_wikidir
 	config.dailydir = orig_dailydir
