@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Heading vs tag completion**: Typing `#` at line start (markdown headings) no longer triggers tag completion
 - **blink.cmp wikilink error**: Fixed `start_col must be less than or equal to end_col` error when completing `[[` wikilinks with blink.cmp
+- **Spurious startup error**: `update_paths()` was called at module load time before `setup()`, causing a false "wiki directory does not exist" error for any user with a non-default `path`
 
 ### Changed
 - Default tag cache TTL increased from 60s to 300s (event-driven invalidation handles normal edits)
