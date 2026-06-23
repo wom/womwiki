@@ -235,9 +235,18 @@ function M.get_wiki_files()
 	return files
 end
 
+--- Convert heading text to a GFM-style anchor slug.
+--- Lowercase, strip punctuation (keep word chars/spaces/hyphens), spaces to hyphens,
+--- collapse consecutive hyphens, trim leading/trailing hyphens.
+--- @param text string Heading text
+--- @return string slug
+function M.slugify(text)
+	return (text:lower():gsub("[^%w%s-]", ""):gsub("%s+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", ""))
+end
+
 --- Get headings from a markdown file
 --- @param filepath string Absolute path to the markdown file
---- @return table[] Array of {text: string, slug: string, level: integer}
+--- @return table[] Array of {text: string, slug: string, level: integer, line: integer}
 function M.get_file_headings(filepath)
 	local headings = {}
 	local lines = utils.read_lines(filepath)
@@ -245,20 +254,42 @@ function M.get_file_headings(filepath)
 		return headings
 	end
 
-	for _, line in ipairs(lines) do
+	for lnum, line in ipairs(lines) do
 		local level, text = line:match("^(#+)%s+(.+)$")
 		if level and text then
-			local slug =
-				text:lower():gsub("[^%w%s-]", ""):gsub("%s+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")
 			table.insert(headings, {
 				text = text,
-				slug = slug,
+				slug = M.slugify(text),
 				level = #level,
+				line = lnum,
 			})
 		end
 	end
 
 	return headings
+end
+
+--- Find the 1-based line number of the heading whose slug matches the given anchor.
+--- Tries an exact slug match first, then falls back to a case-insensitive match.
+--- @param filepath string Absolute path to the markdown file
+--- @param slug string Anchor slug to resolve
+--- @return integer|nil line 1-based line number, or nil if no heading matches
+function M.find_heading_line(filepath, slug)
+	if not slug or slug == "" then
+		return nil
+	end
+	local headings = M.get_file_headings(filepath)
+	local lower = slug:lower()
+	local ci_match
+	for _, heading in ipairs(headings) do
+		if heading.slug == slug then
+			return heading.line
+		end
+		if not ci_match and heading.slug:lower() == lower then
+			ci_match = heading.line
+		end
+	end
+	return ci_match
 end
 
 --- Replace link references from old_key to new_key in a file's content

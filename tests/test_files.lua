@@ -72,6 +72,61 @@ headings["returns empty for nonexistent file"] = function()
 	expect.equality(#result, 0)
 end
 
+headings["captures 1-based heading line numbers"] = function()
+	local result = files.get_file_headings(fixtures .. "/headings.md")
+	expect.equality(result[1].line, 1) -- # Main Title
+	expect.equality(result[2].line, 5) -- ## Getting Started
+	expect.equality(result[3].line, 9) -- ### Installation Steps
+	expect.equality(result[4].line, 13) -- ## API Reference (v2.0)
+end
+
+--------------------------------------------------------------------------------
+-- slugify
+--------------------------------------------------------------------------------
+
+local slugify = new_set()
+T["slugify"] = slugify
+
+slugify["lowercases and converts spaces to hyphens"] = function()
+	expect.equality(files.slugify("Getting Started"), "getting-started")
+end
+
+slugify["strips punctuation"] = function()
+	expect.equality(files.slugify("API Reference (v2.0)"), "api-reference-v20")
+end
+
+slugify["collapses consecutive hyphens"] = function()
+	expect.equality(files.slugify('Edge--Cases & Special "Chars"'):find("%-%-"), nil)
+end
+
+slugify["trims leading and trailing hyphens"] = function()
+	expect.equality(files.slugify("- Trim Me -"), "trim-me")
+end
+
+--------------------------------------------------------------------------------
+-- find_heading_line
+--------------------------------------------------------------------------------
+
+local find_heading = new_set()
+T["find_heading_line"] = find_heading
+
+find_heading["resolves exact slug match"] = function()
+	expect.equality(files.find_heading_line(fixtures .. "/headings.md", "getting-started"), 5)
+	expect.equality(files.find_heading_line(fixtures .. "/headings.md", "installation-steps"), 9)
+end
+
+find_heading["falls back to case-insensitive match"] = function()
+	expect.equality(files.find_heading_line(fixtures .. "/headings.md", "Getting-Started"), 5)
+end
+
+find_heading["returns nil for no match"] = function()
+	expect.equality(files.find_heading_line(fixtures .. "/headings.md", "nonexistent"), nil)
+end
+
+find_heading["returns nil for empty slug"] = function()
+	expect.equality(files.find_heading_line(fixtures .. "/headings.md", ""), nil)
+end
+
 --------------------------------------------------------------------------------
 -- _replace_link_references
 --------------------------------------------------------------------------------

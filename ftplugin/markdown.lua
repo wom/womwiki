@@ -220,24 +220,123 @@ local function follow_markdown_link()
 	local line = vim.api.nvim_get_current_line()
 	local col = vim.api.nvim_win_get_cursor(0)[2]
 	local womwiki = require("womwiki")
+	local files = require("womwiki.files")
 	local wiki_root = womwiki.wikidir
 	local current_dir = vim.fn.expand("%:p:h")
 
-	-- Helper to open file and jump to line
-	local function open_and_jump(path, line_anchor)
+	-- Jump to a 1-based line within the current buffer/window (bounds-checked)
+	local function jump_to_line(target_line)
+		target_line = tonumber(target_line)
+		if not target_line then
+			return
+		end
+		if target_line < 1 or target_line > vim.api.nvim_buf_line_count(0) then
+			vim.notify("Line out of range: #L" .. target_line, vim.log.levels.WARN)
+			return
+		end
+		vim.api.nvim_win_set_cursor(0, { target_line, 0 })
+		vim.cmd("normal! zz") -- Center the line
+	end
+
+	-- Helper to open file and jump to a 1-based line
+	local function open_and_jump(path, target_line)
 		vim.cmd("edit " .. vim.fn.fnameescape(path))
 		vim.b.womwiki = true
 		if wiki_root then
 			vim.cmd("lcd " .. vim.fn.fnameescape(wiki_root))
 		end
-		-- Jump to line if anchor present
-		if line_anchor then
-			local target_line = tonumber(line_anchor)
-			if target_line then
-				vim.api.nvim_win_set_cursor(0, { target_line, 0 })
-				vim.cmd("normal! zz") -- Center the line
+		jump_to_line(target_line)
+	end
+
+	-- Resolve a heading slug to a 1-based line in the current buffer (respects unsaved edits)
+	local function find_heading_line_in_buffer(slug)
+		if not slug or slug == "" then
+			return nil
+		end
+		local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+		local lower = slug:lower()
+		local ci_match
+		for lnum, l in ipairs(lines) do
+			local level, text = l:match("^(#+)%s+(.+)$")
+			if level and text then
+				local s = files.slugify(text)
+				if s == slug then
+					return lnum
+				end
+				if not ci_match and s:lower() == lower then
+					ci_match = lnum
+				end
 			end
 		end
+		return ci_match
+	end
+
+	-- Split a link target into its file part and anchor.
+	-- Splits on the first '#' so the file part never includes a fragment;
+	-- a trailing '#' yields an empty (no-op) anchor rather than a filename.
+	-- @return string file_part, string|nil anchor, boolean has_anchor, string|nil line_anchor
+	local function split_anchor(target)
+		local file_part, anchor
+		local hash = target:find("#", 1, true)
+		if hash then
+			file_part = target:sub(1, hash - 1)
+			anchor = target:sub(hash + 1)
+		else
+			file_part = target
+			anchor = nil
+		end
+		local has_anchor = anchor ~= nil and anchor ~= ""
+		local line_anchor = has_anchor and anchor:match("^L(%d+)$") or nil
+		return file_part, anchor, has_anchor, line_anchor
+	end
+
+	-- Jump within the current buffer for a pure in-page anchor ([text](#x) / [[#x]]).
+	local function jump_in_page(anchor, has_anchor, line_anchor)
+		if not has_anchor then
+			return -- bare "#": placeholder link, no target
+		end
+		if line_anchor then
+			jump_to_line(tonumber(line_anchor))
+		else
+			local target = find_heading_line_in_buffer(anchor)
+			if target then
+				jump_to_line(target)
+			else
+				vim.notify("Heading not found: #" .. anchor, vim.log.levels.WARN)
+			end
+		end
+	end
+
+	-- Canonicalize a path for identity comparison: resolve symlinks (consistent with how
+	-- config.wikidir is resolved) and fall back to an absolute path when realpath fails.
+	local function canonical_path(p)
+		if not p or p == "" then
+			return nil
+		end
+		local abs = vim.fn.fnamemodify(p, ":p")
+		return vim.uv.fs_realpath(abs) or abs
+	end
+
+	-- Open a resolved file and jump to its anchor (line number or heading slug).
+	-- If the link points at the current buffer, jump in place so unsaved edits are
+	-- respected and the buffer is not reloaded.
+	local function open_with_anchor(resolved_path, anchor, has_anchor, line_anchor)
+		local target_path = canonical_path(resolved_path)
+		local current_path = canonical_path(vim.api.nvim_buf_get_name(0))
+		if target_path and current_path and target_path == current_path then
+			jump_in_page(anchor, has_anchor, line_anchor)
+			return
+		end
+		local target
+		if line_anchor then
+			target = tonumber(line_anchor)
+		elseif has_anchor then
+			target = files.find_heading_line(resolved_path, anchor)
+			if not target then
+				vim.notify("Heading not found: #" .. anchor, vim.log.levels.WARN)
+			end
+		end
+		open_and_jump(resolved_path, target)
 	end
 
 	-- Helper to create a new file with confirmation
@@ -265,7 +364,7 @@ local function follow_markdown_link()
 	end
 
 	-- Helper to handle "did you mean" with fuzzy matches
-	local function handle_fuzzy_matches(target_name, matches, display_name)
+	local function handle_fuzzy_matches(target_name, matches, display_name, anchor, has_anchor, line_anchor)
 		local options = {}
 		for _, match in ipairs(matches) do
 			table.insert(options, "Open '" .. match.relative .. "'")
@@ -288,7 +387,7 @@ local function follow_markdown_link()
 				-- Find which match was selected
 				for _, match in ipairs(matches) do
 					if choice == "Open '" .. match.relative .. "'" then
-						open_and_jump(match.path)
+						open_with_anchor(match.path, anchor, has_anchor, line_anchor)
 						return
 					end
 				end
@@ -320,14 +419,23 @@ local function follow_markdown_link()
 					return
 				end
 
-				local filename = wikilink_to_filename(link_target)
+				-- Split off any heading/line anchor ([[#x]] or [[page#x]])
+				local file_part, anchor, has_anchor, line_anchor = split_anchor(link_target)
+
+				-- Pure in-page anchor: [[#heading]] -> jump within current buffer
+				if file_part == "" and anchor ~= nil then
+					jump_in_page(anchor, has_anchor, line_anchor)
+					return
+				end
+
+				local filename = wikilink_to_filename(file_part)
 
 				-- Try to find exact match (case-sensitive)
 				local resolved_path = wiki_root and (wiki_root .. "/" .. filename) or (current_dir .. "/" .. filename)
 				local file = io.open(resolved_path, "r")
 				if file then
 					file:close()
-					open_and_jump(resolved_path)
+					open_with_anchor(resolved_path, anchor, has_anchor, line_anchor)
 					return
 				end
 
@@ -360,7 +468,7 @@ local function follow_markdown_link()
 
 					local exact_match = find_exact_in_subdirs(wiki_root)
 					if exact_match then
-						open_and_jump(exact_match)
+						open_with_anchor(exact_match, anchor, has_anchor, line_anchor)
 						return
 					end
 				end
@@ -370,7 +478,7 @@ local function follow_markdown_link()
 
 				if #fuzzy_matches > 0 then
 					-- Found fuzzy matches - ask "did you mean?"
-					handle_fuzzy_matches(link_target, fuzzy_matches, filename)
+					handle_fuzzy_matches(file_part, fuzzy_matches, filename, anchor, has_anchor, line_anchor)
 				else
 					-- No matches at all - offer to create
 					create_file_with_confirm(filename, filename)
@@ -399,11 +507,13 @@ local function follow_markdown_link()
 				return
 			end
 
-			-- Parse line anchor (#L42) from URL if present
-			local file_path, line_anchor = url:match("^(.-)#L(%d+)$")
-			if not file_path then
-				file_path = url
-				line_anchor = nil
+			-- Parse anchor from URL: #L<num> (line) or #<slug> (heading)
+			local file_path, anchor, has_anchor, line_anchor = split_anchor(url)
+
+			-- Pure in-page anchor: [text](#heading) / [text](#L42) -> jump within current buffer
+			if file_path == "" and anchor ~= nil then
+				jump_in_page(anchor, has_anchor, line_anchor)
+				return
 			end
 
 			-- Try relative to current file first
@@ -413,7 +523,7 @@ local function follow_markdown_link()
 			local file = io.open(resolved_path, "r")
 			if file then
 				file:close()
-				open_and_jump(resolved_path, line_anchor)
+				open_with_anchor(resolved_path, anchor, has_anchor, line_anchor)
 				return
 			end
 
@@ -424,7 +534,7 @@ local function follow_markdown_link()
 				file = io.open(resolved_path, "r")
 				if file then
 					file:close()
-					open_and_jump(resolved_path, line_anchor)
+					open_with_anchor(resolved_path, anchor, has_anchor, line_anchor)
 					return
 				end
 			end
@@ -434,7 +544,7 @@ local function follow_markdown_link()
 			file = io.open(resolved_path, "r")
 			if file then
 				file:close()
-				open_and_jump(resolved_path, line_anchor)
+				open_with_anchor(resolved_path, anchor, has_anchor, line_anchor)
 				return
 			end
 
