@@ -115,4 +115,34 @@ T["get_trigger_characters"]["returns expected triggers"] = function()
 	expect.equality(set["#"], true)
 end
 
+T["get_items"] = new_set()
+
+T["get_items"]["reports initial wiki indexing instead of an empty completion menu"] = function()
+	local config = require("womwiki.config")
+	local files = require("womwiki.files")
+	local old_config = config.config
+	local old_wikidir = config.wikidir
+	local old_dailydir = config.dailydir
+	local old_cache = files.cache
+	local wiki_dir = vim.fn.tempname()
+
+	vim.fn.mkdir(wiki_dir, "p")
+	vim.fn.writefile({ "# Note" }, wiki_dir .. "/note.md")
+	config.setup({ path = wiki_dir })
+	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, initial_scan_complete = false, callbacks = {} }
+
+	local result = completion.get_items("[[")
+	expect.equality(result.is_incomplete, true)
+	expect.equality(result.items[1].label, "womwiki: indexing wiki…")
+
+	vim.wait(1000, function()
+		return not files.cache.loading
+	end, 10)
+	files.cache = old_cache
+	config.config = old_config
+	config.wikidir = old_wikidir
+	config.dailydir = old_dailydir
+	vim.fn.delete(wiki_dir, "rf")
+end
+
 return T

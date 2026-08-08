@@ -311,11 +311,11 @@ end
 -- Tag Index Building
 --------------------------------------------------------------------------------
 
---- Build tag index from all wiki files
+--- Build tag index from a supplied wiki file list.
 --- @return table Tag index {tag -> [{path, title, full_path}, ...]}
-function M.build_tag_index()
+function M.build_tag_index(wiki_files)
 	local files_mod = require("womwiki.files")
-	local wiki_files = files_mod.get_wiki_files()
+	wiki_files = wiki_files or files_mod.get_cached_wiki_files()
 
 	M.cache.index = {}
 	M.cache.file_tags = {}
@@ -427,12 +427,12 @@ function M.get_tag_index()
 	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
 	local now = os.time()
 	if now - M.cache.last_scan > ttl and not M.cache.rebuilding then
-		-- If we have no data at all, do a synchronous build (first load)
-		if M.cache.last_scan == 0 then
-			M.build_tag_index()
-		else
-			-- Return stale data now, rebuild in background
-			M.cache.rebuilding = true
+		-- Return stale data immediately.  The file index is asynchronous, so
+		-- tag completion never recursively scans the wiki on the main thread.
+		M.cache.rebuilding = true
+		local files_mod = require("womwiki.files")
+		local _, loading = files_mod.get_cached_wiki_files()
+		local function rebuild()
 			if has_rg() then
 				M.build_tag_index_rg(function()
 					M.cache.rebuilding = false
@@ -443,6 +443,11 @@ function M.get_tag_index()
 					M.cache.rebuilding = false
 				end)
 			end
+		end
+		if loading then
+			files_mod.on_cache_ready(rebuild)
+		else
+			rebuild()
 		end
 	end
 	return M.cache.index

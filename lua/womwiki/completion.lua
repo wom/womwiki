@@ -81,6 +81,21 @@ function M.get_items(line)
 	end
 
 	local files, loading = require("womwiki.files").get_cached_wiki_files()
+	if loading and #files == 0 then
+		return {
+			items = {
+				{
+					label = "womwiki: indexing wiki…",
+					kind = M.Kind.File,
+					detail = "Completion results will appear when indexing finishes",
+					sortText = "~indexing",
+					insertText = typed,
+				},
+			},
+			is_incomplete = true,
+			link_type = link_type,
+		}
+	end
 
 	-- Check if user is typing a heading reference (contains #)
 	local file_part, _ = typed:match("^(.-)#(.*)$")

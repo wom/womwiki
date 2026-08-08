@@ -13,20 +13,36 @@ M.cache = {
 	last_scan = 0,
 	ttl = 300, -- seconds, overridden by config.completion.cache_ttl
 	loading = false,
+	dirty_during_scan = false,
 	initial_scan_complete = false,
+	callbacks = {},
 }
+
+local function cache_is_fresh()
+	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
+	return M.cache.last_scan > 0 and os.time() - M.cache.last_scan < ttl
+end
 
 --- Invalidate the wiki files cache (call after file changes)
 function M.invalidate_cache()
 	M.cache.last_scan = 0
+	if M.cache.loading then
+		M.cache.dirty_during_scan = true
+		return
+	end
 	if M.refresh_cache_async then
 		M.refresh_cache_async()
 	end
 end
 
-local function cache_is_fresh()
-	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
-	return M.cache.last_scan > 0 and os.time() - M.cache.last_scan < ttl
+--- Run a callback once the current file index is ready.
+--- @param callback fun()
+function M.on_cache_ready(callback)
+	if not M.cache.loading and cache_is_fresh() then
+		vim.schedule(callback)
+		return
+	end
+	table.insert(M.cache.callbacks, callback)
 end
 
 --- Refresh the completion file cache without blocking Neovim's UI.
@@ -74,6 +90,17 @@ function M.refresh_cache_async()
 			M.cache.initial_scan_complete = true
 			if notified then
 				vim.notify(string.format("womwiki: index ready (%d notes)", #files), vim.log.levels.INFO)
+			end
+			if M.cache.dirty_during_scan then
+				M.cache.dirty_during_scan = false
+				M.cache.last_scan = 0
+				M.refresh_cache_async()
+				return
+			end
+			local callbacks = M.cache.callbacks
+			M.cache.callbacks = {}
+			for _, callback in ipairs(callbacks) do
+				vim.schedule(callback)
 			end
 		end
 	end
