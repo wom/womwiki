@@ -421,8 +421,9 @@ local function has_rg()
 	return rg_available
 end
 
---- Get tag index (returns stale data immediately, rebuilds async if needed)
+--- Get tag index (returns stale data immediately, rebuilds async if needed).
 --- @return table Tag index
+--- @return boolean loading
 function M.get_tag_index()
 	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
 	local now = os.time()
@@ -450,14 +451,15 @@ function M.get_tag_index()
 			rebuild()
 		end
 	end
-	return M.cache.index
+	return M.cache.index, M.cache.rebuilding
 end
 
 --- Get all tags (builds index if stale)
 --- @return string[] Sorted list of all tags
+--- @return boolean loading
 function M.get_all_tags()
-	M.get_tag_index() -- Ensure cache is fresh (or trigger async refresh)
-	return M.cache.all_tags
+	local _, loading = M.get_tag_index() -- Ensure cache is fresh (or trigger async refresh)
+	return M.cache.all_tags, loading
 end
 
 --- Invalidate cache (call after file changes)
@@ -476,11 +478,12 @@ function M.list_tags()
 		return
 	end
 
-	local index = M.get_tag_index()
+	local index, loading = M.get_tag_index()
 	local all_tags = M.get_all_tags()
 
 	if #all_tags == 0 then
-		vim.notify("No tags found in wiki", vim.log.levels.INFO)
+		local message = loading and "womwiki: indexing tags…" or "No tags found in wiki"
+		vim.notify(message, vim.log.levels.INFO)
 		return
 	end
 
@@ -560,9 +563,10 @@ function M.filter_by_tag(tag)
 
 	if not tag then
 		-- Prompt for tag
-		local all_tags = M.get_all_tags()
+		local all_tags, loading = M.get_all_tags()
 		if #all_tags == 0 then
-			vim.notify("No tags found in wiki", vim.log.levels.INFO)
+			local message = loading and "womwiki: indexing tags…" or "No tags found in wiki"
+			vim.notify(message, vim.log.levels.INFO)
 			return
 		end
 		vim.ui.select(all_tags, { prompt = "Select tag:" }, function(selected)
@@ -573,11 +577,12 @@ function M.filter_by_tag(tag)
 		return
 	end
 
-	local index = M.get_tag_index()
+	local index, loading = M.get_tag_index()
 	local files = index[tag]
 
 	if not files or #files == 0 then
-		vim.notify("No files with tag: #" .. tag, vim.log.levels.INFO)
+		local message = loading and "womwiki: indexing tags…" or "No files with tag: #" .. tag
+		vim.notify(message, vim.log.levels.INFO)
 		return
 	end
 

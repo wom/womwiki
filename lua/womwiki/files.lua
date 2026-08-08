@@ -14,6 +14,7 @@ M.cache = {
 	ttl = 300, -- seconds, overridden by config.completion.cache_ttl
 	loading = false,
 	dirty_during_scan = false,
+	scan_count = 0,
 	initial_scan_complete = false,
 	callbacks = {},
 }
@@ -54,6 +55,7 @@ function M.refresh_cache_async()
 	end
 
 	M.cache.loading = true
+	M.cache.scan_count = (M.cache.scan_count or 0) + 1
 	local files = {}
 	local pending = 0
 	local is_initial_scan = not M.cache.initial_scan_complete

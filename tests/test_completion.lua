@@ -129,7 +129,7 @@ T["get_items"]["reports initial wiki indexing instead of an empty completion men
 	vim.fn.mkdir(wiki_dir, "p")
 	vim.fn.writefile({ "# Note" }, wiki_dir .. "/note.md")
 	config.setup({ path = wiki_dir })
-	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, initial_scan_complete = false, callbacks = {} }
+	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, scan_count = 0, initial_scan_complete = false, callbacks = {} }
 
 	local result = completion.get_items("[[")
 	expect.equality(result.is_incomplete, true)
@@ -143,6 +143,20 @@ T["get_items"]["reports initial wiki indexing instead of an empty completion men
 	config.wikidir = old_wikidir
 	config.dailydir = old_dailydir
 	vim.fn.delete(wiki_dir, "rf")
+end
+
+T["get_items"]["reports initial tag indexing as incomplete"] = function()
+	local womwiki = require("womwiki")
+	local old_get_all_tags = womwiki.get_all_tags
+	womwiki.get_all_tags = function()
+		return {}, true
+	end
+
+	local result = completion.get_items("text #")
+	expect.equality(result.is_incomplete, true)
+	expect.equality(result.items[1].label, "womwiki: indexing tags…")
+
+	womwiki.get_all_tags = old_get_all_tags
 end
 
 return T

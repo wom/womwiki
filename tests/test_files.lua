@@ -27,7 +27,7 @@ async_cache["indexes paths without blocking the caller"] = function()
 	vim.fn.writefile({ "# Slow Disk" }, wiki_dir .. "/note.md")
 	vim.fn.writefile({ "# Nested" }, wiki_dir .. "/nested/child.md")
 	config.setup({ path = wiki_dir })
-	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, initial_scan_complete = false, callbacks = {} }
+	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, scan_count = 0, initial_scan_complete = false, callbacks = {} }
 
 	local cached, loading = files.get_cached_wiki_files()
 	expect.equality(#cached, 0)
@@ -58,14 +58,14 @@ async_cache["rescans when invalidated during an active scan"] = function()
 	vim.fn.mkdir(wiki_dir, "p")
 	vim.fn.writefile({ "# First" }, wiki_dir .. "/first.md")
 	config.setup({ path = wiki_dir })
-	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, initial_scan_complete = false, callbacks = {} }
+	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, dirty_during_scan = false, scan_count = 0, initial_scan_complete = false, callbacks = {} }
 
 	files.get_cached_wiki_files()
 	files.invalidate_cache()
 	expect.equality(files.cache.dirty_during_scan, true)
 	vim.fn.writefile({ "# Second" }, wiki_dir .. "/second.md")
 	expect.equality(vim.wait(1000, function()
-		return not files.cache.loading and files.cache.last_scan > 0
+		return files.cache.scan_count == 2 and not files.cache.loading and files.cache.last_scan > 0
 	end, 10), true)
 	expect.equality(#files.cache.files, 2)
 

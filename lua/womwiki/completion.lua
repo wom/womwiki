@@ -61,7 +61,22 @@ function M.get_items(line)
 
 	-- Handle tag completion
 	if link_type == "tag" then
-		local all_tags = womwiki.get_all_tags()
+		local all_tags, loading = womwiki.get_all_tags()
+		if loading and #all_tags == 0 then
+			return {
+				items = {
+					{
+						label = "womwiki: indexing tags…",
+						kind = M.Kind.Reference,
+						detail = "Tag completion will appear when indexing finishes",
+						sortText = "~indexing",
+						insertText = typed,
+					},
+				},
+				is_incomplete = true,
+				link_type = link_type,
+			}
+		end
 		for _, tag in ipairs(all_tags) do
 			if tag:lower():find(typed:lower(), 1, true) or typed == "" then
 				table.insert(items, {
@@ -77,7 +92,7 @@ function M.get_items(line)
 				end
 			end
 		end
-		return { items = items, is_incomplete = false, link_type = link_type }
+		return { items = items, is_incomplete = loading, link_type = link_type }
 	end
 
 	local files, loading = require("womwiki.files").get_cached_wiki_files()
