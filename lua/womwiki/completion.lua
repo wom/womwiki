@@ -80,7 +80,7 @@ function M.get_items(line)
 		return { items = items, is_incomplete = false, link_type = link_type }
 	end
 
-	local files = womwiki.get_wiki_files()
+	local files, loading = require("womwiki.files").get_cached_wiki_files()
 
 	-- Check if user is typing a heading reference (contains #)
 	local file_part, _ = typed:match("^(.-)#(.*)$")
@@ -138,7 +138,7 @@ function M.get_items(line)
 		end
 	end
 
-	return { items = items, is_incomplete = false, link_type = link_type }
+	return { items = items, is_incomplete = loading, link_type = link_type }
 end
 
 --- Get trigger characters for completion

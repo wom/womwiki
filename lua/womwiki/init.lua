@@ -36,6 +36,7 @@ function M.setup(opts)
 	-- Setup highlights
 	utils.setup_graph_highlights()
 	keymaps.setup(M, config.config.keymaps)
+	files.refresh_cache_async()
 
 	-- Invalidate file and tag caches when any .md file in the wiki is saved
 	local augroup = vim.api.nvim_create_augroup("WomwikiCacheInvalidation", { clear = true })
@@ -107,6 +108,7 @@ M.create_file = files.create
 M.rename_file = files.rename
 M.get_wiki_folders = files.get_wiki_folders
 M.get_wiki_files = files.get_wiki_files
+M.get_cached_wiki_files = files.get_cached_wiki_files
 M.get_file_headings = files.get_file_headings
 
 --------------------------------------------------------------------------------
@@ -142,7 +144,7 @@ function M.link_complete(findstart, base)
 		return -3
 	else
 		local items = {}
-		local wiki_files = files.get_wiki_files()
+		local wiki_files = files.get_cached_wiki_files()
 		local file_part, heading_part = base:match("^(.-)#(.*)$")
 
 		if file_part and config.config.completion.include_headings then

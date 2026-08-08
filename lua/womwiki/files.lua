@@ -12,11 +12,115 @@ M.cache = {
 	files = {},
 	last_scan = 0,
 	ttl = 300, -- seconds, overridden by config.completion.cache_ttl
+	loading = false,
+	initial_scan_complete = false,
 }
 
 --- Invalidate the wiki files cache (call after file changes)
 function M.invalidate_cache()
 	M.cache.last_scan = 0
+	if M.refresh_cache_async then
+		M.refresh_cache_async()
+	end
+end
+
+local function cache_is_fresh()
+	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
+	return M.cache.last_scan > 0 and os.time() - M.cache.last_scan < ttl
+end
+
+--- Refresh the completion file cache without blocking Neovim's UI.
+--- File titles fall back to their path while the cache is built; reading every
+--- file for its first heading is deliberately avoided on slow filesystems.
+function M.refresh_cache_async()
+	if not config.is_valid() or M.cache.loading or cache_is_fresh() then
+		return
+	end
+
+	M.cache.loading = true
+	local files = {}
+	local pending = 0
+	local is_initial_scan = not M.cache.initial_scan_complete
+	local notified = false
+	local progress_timer
+
+	if is_initial_scan then
+		progress_timer = vim.uv.new_timer()
+		progress_timer:start(
+			1000,
+			0,
+			vim.schedule_wrap(function()
+				if M.cache.loading then
+					notified = true
+					vim.notify("womwiki: indexing wiki…", vim.log.levels.INFO)
+				end
+			end)
+		)
+	end
+
+	local function finish_scan()
+		pending = pending - 1
+		if pending == 0 then
+			if progress_timer and not progress_timer:is_closing() then
+				progress_timer:stop()
+				progress_timer:close()
+			end
+			table.sort(files, function(a, b)
+				return a.path < b.path
+			end)
+			M.cache.files = files
+			M.cache.last_scan = os.time()
+			M.cache.loading = false
+			M.cache.initial_scan_complete = true
+			if notified then
+				vim.notify(string.format("womwiki: index ready (%d notes)", #files), vim.log.levels.INFO)
+			end
+		end
+	end
+
+	local function scan_dir(dir, prefix)
+		pending = pending + 1
+		vim.uv.fs_scandir(dir, function(_, handle)
+			if handle then
+				while true do
+					local name, type = vim.uv.fs_scandir_next(handle)
+					if not name then
+						break
+					end
+
+					local full_path = dir .. "/" .. name
+					local rel_path = prefix ~= "" and (prefix .. "/" .. name) or name
+					if type == "directory" and not name:match("^%.") then
+						scan_dir(full_path, rel_path)
+					elseif type == "file" and name:match("%.md$") then
+						table.insert(files, {
+							path = rel_path,
+							title = rel_path:gsub("%.md$", ""),
+							full_path = full_path,
+						})
+					end
+				end
+			end
+			finish_scan()
+		end)
+	end
+
+	scan_dir(config.wikidir, "")
+end
+
+--- Return the cached file list and start a background refresh when stale.
+--- This is safe to call from completion sources.
+--- @return table[]
+--- @return boolean loading
+function M.get_cached_wiki_files()
+	if not config.is_valid() then
+		return {}, false
+	end
+
+	if not cache_is_fresh() then
+		M.refresh_cache_async()
+	end
+	return M.cache.files, M.cache.loading
 end
 
 --- Open picker to find files in the wiki directory
@@ -182,9 +286,8 @@ function M.get_wiki_files()
 		return {}
 	end
 
-	local ttl = (config.config.completion and config.config.completion.cache_ttl) or M.cache.ttl
 	local now = os.time()
-	if now - M.cache.last_scan < ttl and #M.cache.files > 0 then
+	if cache_is_fresh() then
 		return M.cache.files
 	end
 
@@ -232,6 +335,7 @@ function M.get_wiki_files()
 	scan_dir(config.wikidir, "")
 	M.cache.files = files
 	M.cache.last_scan = now
+	M.cache.initial_scan_complete = true
 	return files
 end
 

@@ -9,6 +9,45 @@ local fixtures = vim.fn.getcwd() .. "/tests/fixtures"
 local T = new_set()
 
 --------------------------------------------------------------------------------
+-- async completion cache
+--------------------------------------------------------------------------------
+
+local async_cache = new_set()
+T["async completion cache"] = async_cache
+
+async_cache["indexes paths without blocking the caller"] = function()
+	local config = require("womwiki.config")
+	local old_config = config.config
+	local old_wikidir = config.wikidir
+	local old_dailydir = config.dailydir
+	local old_cache = files.cache
+	local wiki_dir = vim.fn.tempname()
+
+	vim.fn.mkdir(wiki_dir .. "/nested", "p")
+	vim.fn.writefile({ "# Slow Disk" }, wiki_dir .. "/note.md")
+	vim.fn.writefile({ "# Nested" }, wiki_dir .. "/nested/child.md")
+	config.setup({ path = wiki_dir })
+	files.cache = { files = {}, last_scan = 0, ttl = 300, loading = false, initial_scan_complete = false }
+
+	local cached, loading = files.get_cached_wiki_files()
+	expect.equality(#cached, 0)
+	expect.equality(loading, true)
+	expect.equality(vim.wait(1000, function()
+		return not files.cache.loading
+	end, 10), true)
+	expect.equality(#files.cache.files, 2)
+	expect.equality(files.cache.initial_scan_complete, true)
+	expect.equality(files.cache.files[1].path, "nested/child.md")
+	expect.equality(files.cache.files[2].path, "note.md")
+
+	files.cache = old_cache
+	config.config = old_config
+	config.wikidir = old_wikidir
+	config.dailydir = old_dailydir
+	vim.fn.delete(wiki_dir, "rf")
+end
+
+--------------------------------------------------------------------------------
 -- get_file_headings
 --------------------------------------------------------------------------------
 

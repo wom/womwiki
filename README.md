@@ -232,5 +232,6 @@ The source is automatically registered when nvim-cmp is detected. To manually co
 - **File completion**: Type `[link text](` or `[[` to get wiki file suggestions
 - **Heading completion**: Type `[link](file.md#` to complete headings within that file
 - **Tag completion**: Type `#` (after text) to complete existing tags
-- Fuzzy matching on both filename and title
+- Fuzzy matching on file paths
 - Results are cached and rebuild asynchronously — completion never blocks the editor
+- If the initial index takes over a second, womwiki shows progress and a ready notification

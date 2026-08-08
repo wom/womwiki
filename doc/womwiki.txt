@@ -568,6 +568,10 @@ load, stale caches return data immediately while rebuilding in the
 background, so completion never blocks the editor. If `rg` (ripgrep) is
 available, tag scanning uses it for faster rebuilds.
 
+If the initial file index takes longer than one second, womwiki shows a
+progress notification and reports the number of indexed notes when ready.
+Routine cache refreshes remain silent.
+
 ==============================================================================
 10. WIKILINKS                                          *womwiki-wikilinks*
 
@@ -620,7 +624,7 @@ TRIGGERS ~
 FEATURES ~
 
 - Completes file paths relative to wiki root
-- Shows file title (from first H1 heading) in completion menu
+- Shows the relative file path in the completion menu
 - Type `#` after a filename to complete headings within that file
 - Tag completion suggests existing tags for consistency
 - Works with nvim-cmp, blink.cmp (recommended), or built-in completion
