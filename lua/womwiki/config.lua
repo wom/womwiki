@@ -123,7 +123,4 @@ function M.setup(opts)
 	M.update_paths()
 end
 
--- Initialize with defaults
-M.update_paths()
-
 return M
