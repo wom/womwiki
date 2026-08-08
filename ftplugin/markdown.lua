@@ -1,6 +1,27 @@
 ---@type vim
 local vim = vim
-local patterns = require("womwiki.config").patterns
+local womwiki_config = require("womwiki.config")
+local patterns = womwiki_config.patterns
+
+local function is_wiki_buffer()
+	if not womwiki_config.is_valid() then
+		return false
+	end
+
+	local filepath = vim.api.nvim_buf_get_name(0)
+	if filepath == "" then
+		return false
+	end
+
+	local resolved = vim.uv.fs_realpath(filepath) or vim.fn.fnamemodify(filepath, ":p")
+	return resolved == womwiki_config.wikidir or vim.startswith(resolved, womwiki_config.wikidir .. "/")
+end
+
+local is_wiki = is_wiki_buffer()
+
+if is_wiki then
+	vim.b.womwiki = true
+end
 
 vim.opt_local.tabstop = 2
 vim.opt_local.shiftwidth = 2
@@ -241,7 +262,6 @@ local function follow_markdown_link()
 	-- Helper to open file and jump to a 1-based line
 	local function open_and_jump(path, target_line)
 		vim.cmd("edit " .. vim.fn.fnameescape(path))
-		vim.b.womwiki = true
 		if wiki_root then
 			vim.cmd("lcd " .. vim.fn.fnameescape(wiki_root))
 		end
@@ -554,39 +574,35 @@ local function follow_markdown_link()
 		end
 	end
 
-	-- No link found, fallback to vim's default gf behavior
+	-- No link found; this mapping is active only for wiki Markdown buffers.
 	vim.notify("No markdown link under cursor", vim.log.levels.WARN)
 end
 
-vim.keymap.set("n", "<leader>ml", word_to_link, {
-	buffer = true,
-	desc = "Convert word to link / cycle link format",
-	silent = true,
-})
+if is_wiki then
+	vim.keymap.set("n", "<leader>ml", word_to_link, {
+		buffer = true,
+		desc = "Convert word to link / cycle link format",
+		silent = true,
+	})
 
-vim.keymap.set({ "n", "v" }, "<leader>mc", toggle_markdown_checkbox, {
-	buffer = true,
-	desc = "Toggle markdown checkbox",
-	silent = true,
-})
+	vim.keymap.set({ "n", "v" }, "<leader>mc", toggle_markdown_checkbox, {
+		buffer = true,
+		desc = "Toggle markdown checkbox",
+		silent = true,
+	})
 
-vim.keymap.set({ "n", "v" }, "<Space><Space>", toggle_markdown_checkbox, {
-	buffer = true,
-	desc = "Toggle markdown checkbox",
-	silent = true,
-})
+	vim.keymap.set("n", "gf", follow_markdown_link, {
+		buffer = true,
+		desc = "Follow markdown link",
+		silent = true,
+	})
 
-vim.keymap.set("n", "gf", follow_markdown_link, {
-	buffer = true,
-	desc = "Follow markdown link",
-	silent = true,
-})
-
-vim.keymap.set("n", "<CR>", follow_markdown_link, {
-	buffer = true,
-	desc = "Follow markdown link",
-	silent = true,
-})
+	vim.keymap.set("n", "<CR>", follow_markdown_link, {
+		buffer = true,
+		desc = "Follow markdown link",
+		silent = true,
+	})
+end
 
 -- Setup link autocompletion
 local has_womwiki, womwiki = pcall(require, "womwiki")

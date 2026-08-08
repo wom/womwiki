@@ -251,7 +251,24 @@ function M.mark_todos_forwarded(filepath, todo_lines_to_mark)
 end
 
 --- Setup buffer-local keymaps for daily notes
+--- @param filepath? string
+--- @return boolean
+function M.is_daily_file(filepath)
+	if not config.is_valid() or not filepath or filepath == "" then
+		return false
+	end
+
+	local resolved = vim.uv.fs_realpath(filepath) or vim.fn.fnamemodify(filepath, ":p")
+	local prefix = config.dailydir .. "/"
+	return vim.startswith(resolved, prefix) and vim.fn.fnamemodify(resolved, ":t"):match(patterns.DATE_FILENAME) ~= nil
+end
+
+--- Setup buffer-local keymaps for a daily note.
 function M.setup_daily_buffer()
+	if not config.is_valid() then
+		return
+	end
+
 	vim.b.womwiki = true
 	vim.cmd("lcd " .. vim.fn.fnameescape(config.wikidir))
 

@@ -95,19 +95,23 @@ require("womwiki").setup({
     inline_pattern = "#([%w_-]+)", -- Lua pattern for inline tags
     use_frontmatter = true,      -- Parse YAML frontmatter for tags
   },
+
+  keymaps = {
+    enabled = true,              -- Install default global mappings
+    menu = "<leader>w",          -- Set to false to omit it
+  },
 })
 ```
 
 ## Keymaps
 
-Global mappings (can be disabled by setting `vim.g.womwiki_disable_mappings = true`):
-- `<leader>w`: Open wiki menu
-- `<leader>wb`: Show backlinks
-- `<leader>wg`: Show graph view
+Global mappings are installed by `setup()` and can be configured through `keymaps` (or disabled with `keymaps.enabled = false`). The legacy `vim.g.womwiki_disable_mappings = true` is also supported.
+
+- `<leader>w`: Open the wiki picker
 
 ### Wiki Menu Structure
 
-The main menu (`<leader>w`) provides quick access to common operations:
+The picker menu (`<leader>w` or `require("womwiki").picker()`) provides quick access to common operations:
 
 **Top Level (Quick Actions):**
 - Today/Close Daily - Open today's daily note or close it if already open
@@ -145,7 +149,7 @@ The plugin searches for templates in the following order:
 
 ### Customizing the Template
 
-Use the menu: `<leader>w` → `Settings` → `Edit Daily Template`
+Use the picker: `<leader>w` → `Tools` → `Edit Daily Template`
 
 This will:
 - Open your wiki template if it exists
@@ -171,7 +175,7 @@ The navigation line at the top allows jumping between daily notes:
 
 **Note:** Keep your template in your wiki directory (`<wikidir>/.templates/daily.md`) to make your wiki self-contained and portable.
 
-Markdown buffer mappings:
+Wiki Markdown buffer mappings (only files under the configured wiki path):
 - `<leader>ml`: Convert word to link / cycle link format (`[text](file)` ↔ `[[file]]`)
 - `<leader>mc`: Toggle checkbox
 - `gf`: Follow markdown link (enhanced)
@@ -230,4 +234,3 @@ The source is automatically registered when nvim-cmp is detected. To manually co
 - **Tag completion**: Type `#` (after text) to complete existing tags
 - Fuzzy matching on both filename and title
 - Results are cached and rebuild asynchronously — completion never blocks the editor
-

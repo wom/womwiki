@@ -8,6 +8,43 @@ local capture = require("womwiki.capture")
 
 local T = new_set()
 
+--------------------------------------------------------------------------------
+-- Configuration validation
+--------------------------------------------------------------------------------
+
+local validation = new_set()
+T["configuration validation"] = validation
+
+validation["capture returns cleanly when the wiki path is invalid"] = function()
+	local config = require("womwiki.config")
+	local old_config = config.config
+	local old_wikidir = config.wikidir
+	local old_dailydir = config.dailydir
+	config.setup({ path = "/tmp/womwiki-missing-wiki" })
+
+	local ok = pcall(capture.capture, "This must not be written")
+	expect.equality(ok, true)
+
+	config.config = old_config
+	config.wikidir = old_wikidir
+	config.dailydir = old_dailydir
+end
+
+validation["inbox returns cleanly when the wiki path is invalid"] = function()
+	local config = require("womwiki.config")
+	local old_config = config.config
+	local old_wikidir = config.wikidir
+	local old_dailydir = config.dailydir
+	config.setup({ path = "/tmp/womwiki-missing-wiki" })
+
+	local ok = pcall(capture.inbox)
+	expect.equality(ok, true)
+
+	config.config = old_config
+	config.wikidir = old_wikidir
+	config.dailydir = old_dailydir
+end
+
 -- Helper to read file contents
 local function read_file(path)
 	local file = io.open(path, "r")

@@ -22,6 +22,10 @@
 --- @field inline_pattern string Lua pattern for inline tags
 --- @field use_frontmatter boolean Parse YAML frontmatter for tags
 
+--- @class (exact) womwiki.KeymapsConfig
+--- @field enabled boolean Install womwiki's default global keymaps
+--- @field menu string|false Open the main menu
+
 --- @class (exact) womwiki.Config
 --- @field path string Path to wiki root directory
 --- @field picker string? Picker backend: "telescope", "mini", "fzf", "snacks", or nil to auto-detect
@@ -30,6 +34,7 @@
 --- @field wikilinks womwiki.WikilinksConfig
 --- @field tags womwiki.TagsConfig
 --- @field default_link_style "markdown"|"wikilink"
+--- @field keymaps womwiki.KeymapsConfig
 
 local M = {}
 
@@ -69,6 +74,10 @@ M.config = {
 		use_frontmatter = true,
 	},
 	default_link_style = "markdown",
+	keymaps = {
+		enabled = true,
+		menu = "<leader>w",
+	},
 }
 
 --- Resolved wiki root path (set by update_paths)

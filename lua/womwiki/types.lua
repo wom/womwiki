@@ -11,6 +11,7 @@
 --- @field wikilinks? womwiki.WikilinksConfig.Partial
 --- @field tags? womwiki.TagsConfig.Partial
 --- @field default_link_style? "markdown"|"wikilink"
+--- @field keymaps? womwiki.KeymapsConfig.Partial
 
 --- @class (exact) womwiki.InboxConfig.Partial : womwiki.InboxConfig, {}
 
@@ -19,5 +20,7 @@
 --- @class (exact) womwiki.WikilinksConfig.Partial : womwiki.WikilinksConfig, {}
 
 --- @class (exact) womwiki.TagsConfig.Partial : womwiki.TagsConfig, {}
+
+--- @class (exact) womwiki.KeymapsConfig.Partial : womwiki.KeymapsConfig, {}
 
 return {}

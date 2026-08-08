@@ -39,6 +39,10 @@ local setup = new_set({
 					use_frontmatter = true,
 				},
 				default_link_style = "markdown",
+				keymaps = {
+					enabled = true,
+					menu = "<leader>w",
+				},
 			}
 		end,
 	},
@@ -64,6 +68,12 @@ setup["overrides nested field preserving siblings"] = function()
 	expect.equality(config.config.completion.enabled, true)
 	expect.equality(config.config.completion.include_headings, true)
 	expect.equality(config.config.completion.cache_ttl, 300)
+end
+
+setup["can disable or omit individual default keymaps"] = function()
+	config.setup({ keymaps = { enabled = false, menu = false } })
+	expect.equality(config.config.keymaps.enabled, false)
+	expect.equality(config.config.keymaps.menu, false)
 end
 
 setup["can override multiple sections"] = function()
@@ -93,10 +103,12 @@ setup["all defaults present with empty opts"] = function()
 	expect.no_equality(config.config.completion, nil)
 	expect.no_equality(config.config.wikilinks, nil)
 	expect.no_equality(config.config.tags, nil)
+	expect.no_equality(config.config.keymaps, nil)
 	expect.equality(type(config.config.inbox.file), "string")
 	expect.equality(type(config.config.completion.max_results), "number")
 	expect.equality(type(config.config.wikilinks.spaces_to), "string")
 	expect.equality(type(config.config.tags.inline_pattern), "string")
+	expect.equality(type(config.config.keymaps.menu), "string")
 end
 
 return T

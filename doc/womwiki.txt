@@ -86,8 +86,22 @@ vim.g.womwiki_disable_mappings ~
     Type: `boolean`
     Default: `false`
 
-    Set to `true` before loading the plugin to disable default global
-    keybindings. You can then define your own.
+    Legacy switch to disable default global keybindings. Prefer
+    `keymaps.enabled = false` in `setup()`.
+
+                                                    *womwiki.config.keymaps*
+keymaps ~
+    Type: `table`
+    Default mappings installed by `setup()`. Set `enabled = false` to disable
+    all defaults, or set an individual mapping to `false` to omit it.
+
+    keymaps.enabled ~
+        Type: `boolean`
+        Default: `true`
+
+    keymaps.menu ~
+        Type: `string|false`
+        Default: `<leader>w`
 
                                                       *womwiki.config.inbox*
 inbox ~
@@ -385,20 +399,14 @@ womwiki.tags_menu() ~
 
 GLOBAL KEYBINDINGS ~
 
-These are set globally when the plugin loads (unless disabled with
-|vim.g.womwiki_disable_mappings|):
+These are set globally by `setup()` (unless disabled with `keymaps.enabled`
+or |vim.g.womwiki_disable_mappings|):
 
     <leader>w       Open womwiki menu            |womwiki.picker()|
-    <leader>wb      Search backlinks             |womwiki.backlinks()|
-    <leader>wg      Show graph view              |womwiki.show_graph()|
-    <leader>wq      Quick capture (prompts)      |womwiki.capture()|
-    <leader>wQ      Capture + location link      |womwiki.capture_with_location()|
-    <leader>wq      Capture visual selection     |womwiki.capture_visual()|
-                    (in visual mode, includes location)
-    <leader>wi      Open inbox                   |womwiki.inbox()|
 MARKDOWN BUFFER KEYBINDINGS ~
 
-These are set buffer-locally for markdown files via ftplugin:
+These are set buffer-locally only for Markdown files inside the configured
+wiki path:
 
     gf              Follow markdown link under cursor. Opens URLs in browser,
                     opens local files, offers to create missing files.
@@ -467,7 +475,7 @@ Navigation:
 
 The graph view shows wiki link relationships and statistics.
 
-Open with: |womwiki.show_graph()| or |<leader>wg|.
+Open with: |womwiki.show_graph()| or the picker menu.
 
 Display includes:
 - Total files, links, and average links per file
@@ -494,7 +502,7 @@ Terminology:
 
 Backlinks shows all files that contain a link to the current file.
 
-Open with: |womwiki.backlinks()| or |<leader>wb|.
+Open with: |womwiki.backlinks()| or the picker menu.
 
 The search looks for links in these formats:
 - Markdown links: `[text](filename)` or `[text](filename.md)`

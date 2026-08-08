@@ -10,6 +10,67 @@ local fixtures = vim.fn.getcwd() .. "/tests/fixtures"
 local T = new_set()
 
 --------------------------------------------------------------------------------
+-- is_daily_file
+--------------------------------------------------------------------------------
+
+local daily_file = new_set()
+T["is_daily_file"] = daily_file
+
+daily_file["recognizes a date-named file directly in the daily directory"] = function()
+	local original = require("womwiki.config").config
+	require("womwiki.config").setup({ path = "/tmp" })
+	expect.equality(daily.is_daily_file("/tmp/daily/2026-08-08.md"), true)
+	require("womwiki.config").config = original
+end
+
+daily_file["rejects non-daily paths and filenames"] = function()
+	local original = require("womwiki.config").config
+	require("womwiki.config").setup({ path = "/tmp" })
+	expect.equality(daily.is_daily_file("/tmp/notes/2026-08-08.md"), false)
+	expect.equality(daily.is_daily_file("/tmp/daily/today.md"), false)
+	require("womwiki.config").config = original
+end
+
+daily_file["directly opened daily notes receive navigation mappings"] = function()
+	local config = require("womwiki.config")
+	local womwiki = require("womwiki")
+	local old_config = config.config
+	local old_wikidir = config.wikidir
+	local old_dailydir = config.dailydir
+	local old_swapfile = vim.go.swapfile
+	local old_updatecount = vim.o.updatecount
+	local original_buf = vim.api.nvim_get_current_buf()
+	local original_swapfile = vim.bo[original_buf].swapfile
+	local old_cwd = vim.fn.getcwd()
+	local wiki_dir = vim.fn.tempname()
+	local daily_dir = wiki_dir .. "/daily"
+	local daily_file = daily_dir .. "/2026-08-08.md"
+
+	vim.fn.mkdir(daily_dir, "p")
+	vim.fn.writefile({ "# Daily" }, daily_file)
+	vim.go.swapfile = false
+	vim.o.updatecount = 0
+	vim.bo[original_buf].swapfile = false
+	womwiki.setup({ path = wiki_dir, keymaps = { enabled = false } })
+	local buf = vim.api.nvim_get_current_buf()
+	vim.bo[buf].swapfile = false
+	vim.api.nvim_buf_set_name(buf, daily_file)
+	vim.api.nvim_exec_autocmds("BufEnter", { buffer = buf })
+
+	expect.equality(vim.fn.maparg("[w", "n", false, true).desc, "Previous daily note")
+	expect.equality(vim.fn.maparg("]w", "n", false, true).desc, "Next daily note")
+
+	vim.go.swapfile = old_swapfile
+	vim.o.updatecount = old_updatecount
+	vim.bo[original_buf].swapfile = original_swapfile
+	vim.cmd("lcd " .. vim.fn.fnameescape(old_cwd))
+	config.config = old_config
+	config.wikidir = old_wikidir
+	config.dailydir = old_dailydir
+	vim.fn.delete(wiki_dir, "rf")
+end
+
+--------------------------------------------------------------------------------
 -- extract_incomplete_todos
 --------------------------------------------------------------------------------
 

@@ -6,6 +6,15 @@ local utils = require("womwiki.utils")
 
 local M = {}
 
+local function ensure_wiki()
+	if config.is_valid() then
+		return true
+	end
+
+	vim.notify("womwiki: Wiki directory not configured or not found", vim.log.levels.ERROR)
+	return false
+end
+
 -- Get current buffer location as markdown link [file:line](path#Lline)
 local function get_location_link()
 	local bufname = vim.fn.expand("%:p")
@@ -60,6 +69,10 @@ end
 --- @param text string|nil Text to capture (prompts interactively if nil)
 --- @param include_location boolean|nil Whether to append source location link
 function M.capture(text, include_location)
+	if not ensure_wiki() then
+		return
+	end
+
 	local inbox_path = config.wikidir .. "/" .. config.config.inbox.file
 	local expanded_path = vim.fn.expand(inbox_path)
 
@@ -127,6 +140,10 @@ end
 
 --- Open inbox file for review/processing
 function M.inbox()
+	if not ensure_wiki() then
+		return
+	end
+
 	local inbox_path = config.wikidir .. "/" .. config.config.inbox.file
 	local expanded_path = vim.fn.expand(inbox_path)
 

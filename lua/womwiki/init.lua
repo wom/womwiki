@@ -16,6 +16,7 @@ local files = require("womwiki.files")
 local menu = require("womwiki.menu")
 local graph = require("womwiki.graph")
 local tags = require("womwiki.tags")
+local keymaps = require("womwiki.keymaps")
 
 --------------------------------------------------------------------------------
 -- Configuration (re-export from config module)
@@ -34,6 +35,7 @@ function M.setup(opts)
 	M.dailydir = config.dailydir
 	-- Setup highlights
 	utils.setup_graph_highlights()
+	keymaps.setup(M, config.config.keymaps)
 
 	-- Invalidate file and tag caches when any .md file in the wiki is saved
 	local augroup = vim.api.nvim_create_augroup("WomwikiCacheInvalidation", { clear = true })
@@ -49,6 +51,20 @@ function M.setup(opts)
 			end
 		end,
 	})
+
+	local daily_group = vim.api.nvim_create_augroup("WomwikiDailyBuffers", { clear = true })
+	vim.api.nvim_create_autocmd({ "BufEnter", "BufFilePost" }, {
+		group = daily_group,
+		callback = function(ev)
+			if daily.is_daily_file(vim.api.nvim_buf_get_name(ev.buf)) then
+				daily.setup_daily_buffer()
+			end
+		end,
+	})
+
+	if daily.is_daily_file(vim.api.nvim_buf_get_name(0)) then
+		daily.setup_daily_buffer()
+	end
 end
 
 --------------------------------------------------------------------------------
