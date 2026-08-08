@@ -1,7 +1,7 @@
 *womwiki.txt*  Personal wiki for Neovim                          *womwiki*
 
 Author:   wom
-Version:  0.0.2
+Version:  0.0.3
 License:  MIT
 
 ==============================================================================

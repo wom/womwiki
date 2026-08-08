@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Index file support (open wiki root index.md)
+- Custom todo markers and statuses
+- Task filtering and sorting options
+
+## [0.0.3] - 2026-08-08
+
 ### Added
 - **Completion caching**: File list and tag index are now cached with configurable TTL (`completion.cache_ttl`, default 300s)
 - **Event-driven cache invalidation**: Caches auto-invalidate on `BufWritePost` for wiki `.md` files
 - **Async tag rebuild**: Stale tag data is returned immediately while fresh data rebuilds in the background
 - **Ripgrep tag scanning**: Uses `rg` for faster tag scanning when available, with Lua fallback
+- **Non-blocking file index**: File-path completion indexes the wiki asynchronously, avoiding startup and `[[` stalls on slow disks
+- **Initial indexing status**: A one-time notification reports indexing only when it exceeds one second, followed by the indexed note count
+- **Configurable keymaps**: Default mappings are installed during `setup()` and can be replaced or disabled through `keymaps`
+- **Direct daily navigation**: `[w` and `]w` are available in daily notes without opening the picker
 
 ### Fixed
 - **Heading vs tag completion**: Typing `#` at line start (markdown headings) no longer triggers tag completion
@@ -20,11 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Default tag cache TTL increased from 60s to 300s (event-driven invalidation handles normal edits)
 - Tag index building now reads each file once instead of three times (single-pass metadata reader)
-
-### Planned
-- Index file support (open wiki root index.md)
-- Custom todo markers and statuses
-- Task filtering and sorting options
+- `<leader>w` now opens the wiki picker directly; picker actions replace the redundant direct submenu mappings
+- Markdown editing mappings apply only within the configured wiki; normal Neovim behavior is retained elsewhere
+- File completion displays relative wiki paths instead of reading every note's first heading
 
 ## [0.0.2] - 2026-02-23
 
